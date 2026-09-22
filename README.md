@@ -5,8 +5,8 @@ Submitted for the Everest Engineering coding challenge (Challenge B).
 
 - **Stack:** TypeScript (strict), Node ≥ 22.13, Hono, Vitest. Two runtime dependencies (`hono`,
   `@hono/node-server`).
-- **Tests:** 119 tests in 13 files, including three concurrency tests; coverage 96.4% lines,
-  93.5% branches, 98.6% functions on `src/` (page excluded).
+- **Tests:** 129 tests in 14 files, including three concurrency tests; coverage 96.9% lines,
+  93.8% branches, 98.8% functions on `src/` (page excluded).
 - **Locking:** one promise-chain mutex per product around every write. See
   [Locking strategy](#locking-strategy).
 
@@ -19,8 +19,10 @@ npm start          # builds the page and serves http://localhost:3000 (PORT to c
 ```
 
 `npm start` seeds one product, **Flash Sale Ticket** with stock 1. Open the page, click **Everyone
-buys now**, and watch one customer win and the rest get `Only 0 of flash-ticket available; 1
-requested.` Set the hold time to 10 seconds to watch a reservation expire and the stock come back.
+adds to cart**, and watch one customer get it and the rest get `Only 0 of flash-ticket available; 1
+requested.`, with every attempt in the **Activity** list. A cart is the customer's active holds:
+**Checkout** confirms them, **Remove** cancels one, and a hold expires on its own (set the hold time
+to 10 seconds to watch that happen). **Reset inventory** puts everything back to the seed.
 
 ## What it does
 
@@ -29,6 +31,7 @@ requested.` Set the hold time to 10 seconds to watch a reservation expire and th
 - `available = total − confirmed − active`; a reserve that would exceed it fails.
 - Confirmed purchases cannot be reversed; cancel and expiry release stock at once.
 - Under 500 simultaneous requests for one item, exactly one succeeds.
+- An audit trail of every action, including the rejected ones, and a reset to the seed state.
 
 ## API
 
@@ -45,10 +48,12 @@ anything unexpected (reported server-side, nothing leaked).
 | POST | `/api/reservations/:id/confirm` | | 200 reservation |
 | POST | `/api/reservations/:id/cancel` | | 200 reservation |
 | PUT | `/api/settings/hold-time` | `{ holdTimeMs }` | 200 `{ holdTimeMs }` |
-| GET | `/api/state` | | 200 everything, for the page |
+| GET | `/api/state` | | 200 products, reservations, events, hold time |
+| POST | `/api/reset` | | 200 the state after re-seeding |
 
 A product view carries `confirmed`, `active` and `available` alongside `totalStock`. Dates are ISO
-strings.
+strings. `events` is the audit trail, oldest first, as `{ seq, at, type, actor, message }`; the
+server keeps the latest 200.
 
 ```bash
 curl -X POST localhost:3000/api/products/flash-ticket/reservations \
@@ -77,9 +82,13 @@ return this.#locks.withLock(sku, async () => {
   const loaded = await this.#load(sku, now); // read
   // ... pure domain decision ...
   await this.#store.saveReservation(reservation); // write
+  await this.#record('reserved', userId, `reserved ${units(reservation)} …`); // audit
   return ok(reservation);
 });
 ```
+
+The audit line is written inside the lock, after the save, so the trail is in the order things
+happened. Rejections are recorded too: the 499 losers of a flash sale are in the log.
 
 ## Locking strategy
 
@@ -145,18 +154,18 @@ spec (`R1` … `R11`), so the brief's rules can be traced to the tests that hold
 
 - **Domain:** the availability arithmetic and every state transition, including the exact expiry
   boundary (t+119 999 ms holds, t+120 000 ms expires), with a fake clock.
-- **Service:** the lifecycle, validation, and lazy expiry persistence.
+- **Service:** the lifecycle, validation, lazy expiry persistence, the audit trail (order, actors,
+  the 200-event cap) and reset.
 - **Concurrency:** 500 simultaneous reserves sell exactly one; the same load without the lock
   oversells; a mixed load of reserve/confirm/cancel on two products never breaks
   `confirmed + active ≤ total`.
 - **HTTP:** every route through Hono's in-process `app.request()`, the 500-request sale over HTTP,
   a smoke test that starts the real server, and one that spawns `npm start`'s entry point and
   stops it with SIGTERM.
-- **Page:** type-checked, exercised by hand (nine-step checklist in the design record); not
-  browser-tested.
+- **Page:** type-checked, exercised by hand (checklist in the design record); not browser-tested.
 
 ```bash
-npm test               # 119 tests
+npm test               # 129 tests
 npm run test:coverage
 npm run lint && npm run typecheck && npm run format:check
 ```
