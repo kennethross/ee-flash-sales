@@ -238,7 +238,7 @@ describe('R11 — PUT /api/settings/hold-time', () => {
 });
 
 describe('R11 — GET /api/state', () => {
-  it('returns now, hold time, product views and reservations with ISO dates', async () => {
+  it('returns now, hold time, product views, reservations and events with ISO dates', async () => {
     const { app } = setup();
     await call(app, 'POST', '/api/products', ticket);
     await call(app, 'POST', '/api/products/flash-ticket/reservations', { userId: 'ana' });
@@ -247,12 +247,49 @@ describe('R11 — GET /api/state', () => {
       holdTimeMs: number;
       products: unknown[];
       reservations: { expiresAt: string }[];
+      events: { seq: number; at: string; type: string; actor: string; message: string }[];
     }>(app, 'GET', '/api/state');
     expect(response.status).toBe(200);
     expect(response.body.now).toBe('2026-09-22T10:00:00.000Z');
     expect(response.body.holdTimeMs).toBe(HOLD_MS);
     expect(response.body.products).toEqual([{ ...ticket, confirmed: 0, active: 1, available: 0 }]);
     expect(response.body.reservations[0]?.expiresAt).toBe(at(HOLD_MS).toISOString());
+    expect(response.body.events.map((event) => [event.type, event.actor])).toEqual([
+      ['product-created', 'inventory'],
+      ['reserved', 'ana'],
+    ]);
+    expect(response.body.events[1]?.at).toBe('2026-09-22T10:00:00.000Z');
+  });
+});
+
+describe('R12 — POST /api/reset', () => {
+  it('returns the inventory to the seed the app was built with', async () => {
+    const sut = makeService();
+    const app = createApp(sut.service, { seed: [ticket] });
+    await call(app, 'POST', '/api/products', { sku: 'mug', name: 'Mug', totalStock: 2 });
+    await call(app, 'POST', '/api/products/mug/reservations', { userId: 'ana' });
+    await call(app, 'PUT', '/api/settings/hold-time', { holdTimeMs: 5_000 });
+
+    const response = await call<{
+      holdTimeMs: number;
+      products: unknown[];
+      reservations: unknown[];
+      events: { type: string }[];
+    }>(app, 'POST', '/api/reset');
+
+    expect(response.status).toBe(200);
+    expect(response.body.holdTimeMs).toBe(HOLD_MS);
+    expect(response.body.products).toEqual([{ ...ticket, confirmed: 0, active: 0, available: 1 }]);
+    expect(response.body.reservations).toEqual([]);
+    expect(response.body.events.map((event) => event.type)).toEqual(['reset', 'product-created']);
+  });
+
+  it('with no seed configured leaves an empty inventory', async () => {
+    const { app } = setup();
+    await call(app, 'POST', '/api/products', ticket);
+    const response = await call<{ products: unknown[] }>(app, 'POST', '/api/reset');
+    expect(response.status).toBe(200);
+    expect(response.body.products).toEqual([]);
   });
 });
 

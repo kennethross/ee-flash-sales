@@ -1,3 +1,4 @@
+import { INVENTORY_ACTOR, type ActivityEvent, type ActivityType } from '../domain/activity';
 import { fail, ok, type Fail, type Result } from '../domain/failures';
 import {
   available,
@@ -31,6 +32,8 @@ export interface Snapshot {
   readonly products: readonly ProductView[];
   /** Reservations with their effective state: overdue Active ones are shown as Expired. */
   readonly reservations: readonly Reservation[];
+  /** The audit trail, oldest first. */
+  readonly events: readonly ActivityEvent[];
 }
 
 interface LoadedProduct {
@@ -40,7 +43,8 @@ interface LoadedProduct {
 
 /**
  * Every write is `withLock(sku, load → decide → save)`: the only place a lock is taken.
- * Deciding is done by pure domain functions; this class only sequences I/O around them.
+ * Deciding is done by pure domain functions; this class only sequences I/O around them, and
+ * records each outcome in the audit trail after it is saved.
  */
 export class InventoryService {
   readonly #store: InventoryStore;
@@ -65,11 +69,12 @@ export class InventoryService {
   }
 
   /** Applies to reservations made from now on; existing ones keep their `expiresAt`. */
-  setHoldTime(ms: number): Result<number> {
+  async setHoldTime(ms: number): Promise<Result<number>> {
     if (!isPositiveInteger(ms)) {
       return fail('VALIDATION', 'Hold time must be a positive integer of milliseconds.');
     }
     this.#holdTimeMs = ms;
+    await this.#record('hold-time-changed', INVENTORY_ACTOR, `hold time set to ${seconds(ms)} s`);
     return ok(ms);
   }
 
@@ -86,6 +91,11 @@ export class InventoryService {
       }
       const product: Product = { sku: input.sku, name: input.name, totalStock: input.totalStock };
       await this.#store.saveProduct(product);
+      await this.#record(
+        'product-created',
+        INVENTORY_ACTOR,
+        `created "${product.name}" (${product.sku}) with stock ${String(product.totalStock)}`,
+      );
       return ok(stockCounts(product, [], this.#clock.now()));
     });
   }
@@ -110,6 +120,11 @@ export class InventoryService {
       }
       const product: Product = { ...loaded.product, totalStock };
       await this.#store.saveProduct(product);
+      await this.#record(
+        'stock-adjusted',
+        INVENTORY_ACTOR,
+        `set stock of ${sku} to ${String(totalStock)}`,
+      );
       return ok(stockCounts(product, loaded.reservations, now));
     });
   }
@@ -120,6 +135,7 @@ export class InventoryService {
         return productNotFound(sku);
       }
       await this.#store.deleteProduct(sku);
+      await this.#record('product-deleted', INVENTORY_ACTOR, `deleted ${sku}`);
       return ok(undefined);
     });
   }
@@ -139,10 +155,12 @@ export class InventoryService {
       }
       const free = available(loaded.product, loaded.reservations, now);
       if (quantity > free) {
-        return fail(
+        const rejection = fail(
           'OUT_OF_STOCK',
           `Only ${String(free)} of ${sku} available; ${String(quantity)} requested.`,
         );
+        await this.#record('rejected', userId, `rejected: ${rejection.failure.message}`);
+        return rejection;
       }
       const reservation: Reservation = {
         id: crypto.randomUUID(),
@@ -154,28 +172,56 @@ export class InventoryService {
         expiresAt: new Date(now.getTime() + this.#holdTimeMs),
       };
       await this.#store.saveReservation(reservation);
+      await this.#record(
+        'reserved',
+        userId,
+        `reserved ${units(reservation)} (hold ${seconds(this.#holdTimeMs)} s)`,
+      );
       return ok(reservation);
     });
   }
 
   confirm(id: ReservationId): Promise<Result<Reservation>> {
-    return this.#transition(id, confirmReservation);
+    return this.#transition(id, confirmReservation, 'confirmed');
   }
 
   cancel(id: ReservationId): Promise<Result<Reservation>> {
-    return this.#transition(id, cancelReservation);
+    return this.#transition(id, cancelReservation, 'cancelled');
+  }
+
+  /**
+   * Back to a known state: every product and reservation gone, the hold time at its default, the
+   * audit trail restarted, then the seed products created. Each delete takes its product's lock,
+   * so a reserve racing the reset is serialised and finds no product.
+   */
+  async reset(seed: readonly CreateProductInput[] = []): Promise<Result<Snapshot>> {
+    const { products } = await this.#store.snapshot();
+    for (const product of products) {
+      await this.deleteProduct(product.sku);
+    }
+    this.#holdTimeMs = DEFAULT_HOLD_TIME_MS;
+    await this.#store.clearEvents();
+    await this.#record('reset', INVENTORY_ACTOR, 'inventory reset to its seed');
+    for (const input of seed) {
+      const created = await this.createProduct(input);
+      if (!created.ok) {
+        return created;
+      }
+    }
+    return ok(await this.snapshot());
   }
 
   /** A read: takes no lock. One store call, so the view is consistent. */
   async snapshot(): Promise<Snapshot> {
     const now = this.#clock.now();
-    const { products, reservations } = await this.#store.snapshot();
+    const { products, reservations, events } = await this.#store.snapshot();
     const effective = reservations.map((reservation) => expireIfDue(reservation, now));
     return {
       now,
       holdTimeMs: this.#holdTimeMs,
       products: products.map((product) => stockCounts(product, effective, now)),
       reservations: effective,
+      events,
     };
   }
 
@@ -186,6 +232,7 @@ export class InventoryService {
   async #transition(
     id: ReservationId,
     apply: (reservation: Reservation, now: Date) => Result<Reservation>,
+    outcome: 'confirmed' | 'cancelled',
   ): Promise<Result<Reservation>> {
     const found = await this.#store.getReservation(id);
     if (found === undefined) {
@@ -198,9 +245,14 @@ export class InventoryService {
         return reservationNotFound(id);
       }
       const result = apply(current, now);
-      const next = result.ok ? result.value : expireIfDue(current, now);
-      if (next !== current) {
-        await this.#store.saveReservation(next);
+      if (result.ok) {
+        await this.#store.saveReservation(result.value);
+        await this.#record(outcome, current.userId, `${outcome} ${units(current)}`);
+        return result;
+      }
+      const expired = expireIfDue(current, now);
+      if (expired !== current) {
+        await this.#recordExpiry(expired);
       }
       return result;
     });
@@ -216,11 +268,20 @@ export class InventoryService {
     for (const stored of await this.#store.listReservations(sku)) {
       const current = expireIfDue(stored, now);
       if (current !== stored) {
-        await this.#store.saveReservation(current);
+        await this.#recordExpiry(current);
       }
       reservations.push(current);
     }
     return { product, reservations };
+  }
+
+  async #recordExpiry(expired: Reservation): Promise<void> {
+    await this.#store.saveReservation(expired);
+    await this.#record('expired', expired.userId, `expired ${units(expired)}`);
+  }
+
+  #record(type: ActivityType, actor: string, message: string): Promise<void> {
+    return this.#store.appendEvent({ at: this.#clock.now(), type, actor, message });
   }
 }
 
@@ -230,6 +291,14 @@ function productNotFound(sku: Sku): Fail {
 
 function reservationNotFound(id: ReservationId): Fail {
   return fail('NOT_FOUND', `Reservation ${id} does not exist.`);
+}
+
+function units(reservation: Reservation): string {
+  return `${String(reservation.quantity)} × ${reservation.sku}`;
+}
+
+function seconds(ms: number): string {
+  return String(ms / 1000);
 }
 
 // Safe integers only: beyond 2^53 the stock arithmetic would silently lose precision.

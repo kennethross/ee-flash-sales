@@ -28,7 +28,7 @@ export async function startServer(options: {
     throw new Error(`Could not seed the demo product: ${seeded.failure.message}`);
   }
 
-  const app = createApp(service);
+  const app = createApp(service, { seed: [DEMO_PRODUCT] });
   app.use('/*', serveStatic({ root: options.publicDir ?? './public' }));
 
   return new Promise((resolve, reject) => {

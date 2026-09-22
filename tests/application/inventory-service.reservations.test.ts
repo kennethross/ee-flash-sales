@@ -155,7 +155,7 @@ describe('R8 — hold time applies to new reservations only', () => {
     const { service, clock } = makeService();
     unwrap(await service.createProduct(mugs));
     const first = unwrap(await service.reserve('mug', 'ana'));
-    unwrap(service.setHoldTime(10_000));
+    unwrap(await service.setHoldTime(10_000));
     const second = unwrap(await service.reserve('mug', 'ben'));
     expect(first.expiresAt).toEqual(at(HOLD_MS));
     expect(second.expiresAt).toEqual(at(10_000));

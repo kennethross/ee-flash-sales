@@ -106,16 +106,16 @@ describe('hold time', () => {
     expect(makeService({ holdTimeMs: 10_000 }).service.holdTimeMs).toBe(10_000);
   });
 
-  it('R8 — setHoldTime changes it at runtime', () => {
+  it('R8 — setHoldTime changes it at runtime', async () => {
     const { service } = makeService();
-    expect(service.setHoldTime(5_000)).toEqual({ ok: true, value: 5_000 });
+    expect(await service.setHoldTime(5_000)).toEqual({ ok: true, value: 5_000 });
     expect(service.holdTimeMs).toBe(5_000);
   });
 
-  it('R10 — setHoldTime rejects anything but a positive integer', () => {
+  it('R10 — setHoldTime rejects anything but a positive integer', async () => {
     const { service } = makeService();
-    expect(unwrapFailure(service.setHoldTime(0)).code).toBe('VALIDATION');
-    expect(unwrapFailure(service.setHoldTime(-1)).code).toBe('VALIDATION');
-    expect(unwrapFailure(service.setHoldTime(1.5)).code).toBe('VALIDATION');
+    expect(unwrapFailure(await service.setHoldTime(0)).code).toBe('VALIDATION');
+    expect(unwrapFailure(await service.setHoldTime(-1)).code).toBe('VALIDATION');
+    expect(unwrapFailure(await service.setHoldTime(1.5)).code).toBe('VALIDATION');
   });
 });

@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import type { InventoryService } from '../application/inventory-service';
+import type { CreateProductInput, InventoryService } from '../application/inventory-service';
 import type { FailureCode, Result } from '../domain/failures';
 import { parseAdjustStock, parseCreateProduct, parseHoldTime, parseReserve } from './guards';
 
@@ -16,12 +16,15 @@ const STATUS_BY_CODE: Record<FailureCode, ContentfulStatusCode> = {
 export interface AppOptions {
   /** Where unexpected errors (bugs, not domain failures) are reported. Defaults to `console.error`. */
   readonly reportError?: (error: unknown) => void;
+  /** What `POST /api/reset` re-creates after clearing everything. Defaults to nothing. */
+  readonly seed?: readonly CreateProductInput[];
 }
 
 /** Routes only: no listening, no static files, so tests can call it in-process. */
 export function createApp(service: InventoryService, options: AppOptions = {}): Hono {
   const app = new Hono();
   const reportError = options.reportError ?? defaultReportError;
+  const seed = options.seed ?? [];
 
   app.post('/api/products', async (c) => {
     const parsed = parseCreateProduct(await readJson(c));
@@ -66,11 +69,13 @@ export function createApp(service: InventoryService, options: AppOptions = {}): 
     if (!parsed.ok) {
       return respond(c, parsed);
     }
-    const result = service.setHoldTime(parsed.value.holdTimeMs);
+    const result = await service.setHoldTime(parsed.value.holdTimeMs);
     return result.ok ? c.json({ holdTimeMs: result.value }) : respond(c, result);
   });
 
   app.get('/api/state', async (c) => c.json(await service.snapshot()));
+
+  app.post('/api/reset', async (c) => respond(c, await service.reset(seed)));
 
   app.notFound((c) =>
     c.json(

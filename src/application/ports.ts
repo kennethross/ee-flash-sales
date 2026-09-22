@@ -1,3 +1,4 @@
+import type { ActivityEvent, NewActivityEvent } from '../domain/activity';
 import type { Product, Sku } from '../domain/product';
 import type { Reservation, ReservationId } from '../domain/reservation';
 
@@ -14,9 +15,13 @@ export interface InventoryStore {
   getReservation(id: ReservationId): Promise<Reservation | undefined>;
   saveReservation(reservation: Reservation): Promise<void>;
   listReservations(sku: Sku): Promise<readonly Reservation[]>;
+  /** Appends to the audit trail. The store assigns `seq` in insertion order and may cap the length. */
+  appendEvent(event: NewActivityEvent): Promise<void>;
+  clearEvents(): Promise<void>;
   snapshot(): Promise<{
     readonly products: readonly Product[];
     readonly reservations: readonly Reservation[];
+    readonly events: readonly ActivityEvent[];
   }>;
 }
 

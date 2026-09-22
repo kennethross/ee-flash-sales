@@ -1,14 +1,20 @@
 import type { InventoryStore } from '../application/ports';
+import type { ActivityEvent, NewActivityEvent } from '../domain/activity';
 import type { Product, Sku } from '../domain/product';
 import type { Reservation, ReservationId } from '../domain/reservation';
 
+/** Events kept in memory; older ones are dropped. Enough for the page, bounded for the process. */
+const EVENT_CAP = 200;
+
 /**
- * Two Maps. Methods return promises because the port is asynchronous (see `InventoryStore`);
- * `Promise.resolve` rather than `async` because nothing here awaits.
+ * Two Maps and an event list. Methods return promises because the port is asynchronous (see
+ * `InventoryStore`); `Promise.resolve` rather than `async` because nothing here awaits.
  */
 export class InMemoryStore implements InventoryStore {
   readonly #products = new Map<Sku, Product>();
   readonly #reservations = new Map<ReservationId, Reservation>();
+  #events: ActivityEvent[] = [];
+  #nextSeq = 1;
 
   getProduct(sku: Sku): Promise<Product | undefined> {
     return Promise.resolve(this.#products.get(sku));
@@ -44,13 +50,30 @@ export class InMemoryStore implements InventoryStore {
     );
   }
 
+  appendEvent(event: NewActivityEvent): Promise<void> {
+    this.#events.push({ ...event, seq: this.#nextSeq });
+    this.#nextSeq += 1;
+    if (this.#events.length > EVENT_CAP) {
+      this.#events.shift();
+    }
+    return Promise.resolve();
+  }
+
+  clearEvents(): Promise<void> {
+    this.#events = [];
+    this.#nextSeq = 1;
+    return Promise.resolve();
+  }
+
   snapshot(): Promise<{
     readonly products: readonly Product[];
     readonly reservations: readonly Reservation[];
+    readonly events: readonly ActivityEvent[];
   }> {
     return Promise.resolve({
       products: [...this.#products.values()],
       reservations: [...this.#reservations.values()],
+      events: [...this.#events],
     });
   }
 }
