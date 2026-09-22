@@ -2,9 +2,226 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Flash Sale Simulator</title>
+    <style>
+      :root {
+        --ink: #1f2933;
+        --muted: #6b7280;
+        --line: #d9dee3;
+        --panel: #ffffff;
+        --page: #f3f4f6;
+        --accent: #2563eb;
+        --ok: #15803d;
+        --warn: #b45309;
+        --bad: #b91c1c;
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+        color: var(--ink);
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+      }
+      header {
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+        display: flex;
+        align-items: baseline;
+        gap: 16px;
+      }
+      header h1 {
+        font-size: 20px;
+        margin: 0;
+      }
+      #connection {
+        color: var(--muted);
+        margin: 0;
+        font-size: 14px;
+      }
+      .panes {
+        display: grid;
+        grid-template-columns: minmax(320px, 2fr) 3fr;
+        gap: 16px;
+        padding: 16px 24px;
+      }
+      @media (max-width: 900px) {
+        .panes {
+          grid-template-columns: 1fr;
+        }
+      }
+      .pane {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+      }
+      .pane h2 {
+        margin: 0 0 12px;
+        font-size: 16px;
+      }
+      form {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      input,
+      select,
+      button {
+        font: inherit;
+        padding: 6px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+      }
+      input[type='number'] {
+        width: 90px;
+      }
+      button {
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: white;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--line);
+      }
+      th {
+        color: var(--muted);
+        font-weight: 600;
+      }
+      td.zero {
+        color: var(--bad);
+        font-weight: 600;
+      }
+      hr {
+        border: 0;
+        border-top: 1px solid var(--line);
+        margin: 16px 0;
+      }
+      .message {
+        min-height: 1.2em;
+        color: var(--warn);
+        font-size: 14px;
+        margin: 0;
+      }
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      #customer-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 12px;
+      }
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        display: grid;
+        gap: 8px;
+        border-left-width: 4px;
+      }
+      .card h3 {
+        margin: 0;
+        font-size: 15px;
+      }
+      .card .actions {
+        display: flex;
+        gap: 6px;
+      }
+      .card .status {
+        margin: 0;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .card[data-state='active'] {
+        border-left-color: var(--accent);
+      }
+      .card[data-state='confirmed'] {
+        border-left-color: var(--ok);
+      }
+      .card[data-state='cancelled'],
+      .card[data-state='expired'] {
+        border-left-color: var(--warn);
+      }
+      .card[data-state='rejected'] {
+        border-left-color: var(--bad);
+      }
+    </style>
   </head>
   <body>
-    <p>Simulator page: built in Task 14.</p>
+    <header>
+      <h1>Flash Sale Simulator</h1>
+      <p id="connection">connecting…</p>
+    </header>
+    <main class="panes">
+      <section class="pane" aria-labelledby="inventory-heading">
+        <h2 id="inventory-heading">Inventory</h2>
+        <form id="add-product-form">
+          <input id="product-name" placeholder="Product name" required />
+          <input
+            id="product-stock"
+            type="number"
+            min="0"
+            step="1"
+            value="1"
+            required
+            aria-label="Quantity"
+          />
+          <button type="submit" class="primary">Add product</button>
+        </form>
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Total</th>
+              <th>Confirmed</th>
+              <th>Active</th>
+              <th>Available</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="product-rows"></tbody>
+        </table>
+        <hr />
+        <form id="hold-time-form">
+          <label for="hold-time">Hold time (seconds)</label>
+          <input id="hold-time" type="number" min="1" step="1" />
+          <button type="submit">Apply</button>
+        </form>
+        <p id="inventory-message" class="message"></p>
+      </section>
+      <section class="pane" aria-labelledby="customers-heading">
+        <h2 id="customers-heading">Customers</h2>
+        <div class="toolbar">
+          <button id="add-customer" type="button">Add customer</button>
+          <button id="everyone-buys" type="button" class="primary">Everyone buys now</button>
+        </div>
+        <div id="customer-cards"></div>
+      </section>
+    </main>
+    <script type="module" src="/simulator.js"></script>
   </body>
 </html>
