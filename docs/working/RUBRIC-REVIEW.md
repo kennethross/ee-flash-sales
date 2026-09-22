@@ -120,6 +120,15 @@ page in Chrome) and holds.
 - **Disposition:** intentional (they back the AI disclosure) and separable; Kenneth decides what
   ships (see `SUBMISSION-CHECKLIST.md`).
 
+## Post-review additions (Phase 6, same day)
+
+Kenneth asked for a cart, per-customer removal, a reset and an activity audit after this review.
+Server side: `POST /api/reset` (R12) and an audit trail in `Snapshot.events` (R13), test-first
+(`503b8ef`, +10 tests → 129). Page: cart lines with checkout, × per card, reset button, activity
+list (`32111b0`). Rechecked: lint, typecheck, Prettier clean; coverage 96.9% lines. R-007 stands
+with the page now ~600 lines: still one file, still a demo harness, still stated in the README.
+No criterion score changes.
+
 ## Top three improvements (beyond this submission)
 
 1. Move the reservation decision into a shared store so more than one instance can run.

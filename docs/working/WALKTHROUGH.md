@@ -85,16 +85,30 @@ service with real infrastructure, seeds `flash-ticket`, adds `serveStatic` for `
 resolves with `{ url, close }` once listening. `main.ts` reads `PORT`, starts it, and closes on
 SIGINT/SIGTERM.
 
+## The audit trail
+
+`src/domain/activity.ts` defines `{ seq, at, type, actor, message }`. The service's `#record`
+appends one line after each save, inside the same lock, so the order in the log is the order the
+decisions were made; rejections are recorded too. Expiry is recorded when the system notices it
+(the next write to that product, or a failed confirm), which is honest about *when* it was noticed.
+`InMemoryStore` assigns `seq` and keeps the latest 200. `reset` clears the log, writes one `reset`
+line and re-creates the seed, so after a reset the log reads `reset`, `product-created`.
+
 ## The page
 
 `public/index.html` + `src/web/simulator.ts` (compiled to `public/simulator.js` by
 `tsconfig.web.json`). It polls `/api/state` every second. Customers exist only in the page;
-reservations live on the server under `userId = customer name`. "Everyone buys now" is one
-`Promise.all` of POSTs, so the requests are concurrent for real. Product rows are rebuilt on each
-poll; cards are created once and updated in place so the picker keeps its choice.
+reservations live on the server under `userId = customer name`, and a customer's **cart** is simply
+their Active reservations. "Add to cart" reserves, "Remove" on a line cancels, "Checkout" confirms
+every line, × on the card cancels the holds and drops the card. "Everyone adds to cart" is one
+`Promise.all` of POSTs, so the requests are concurrent for real. Product rows, cart lines and
+activity rows go through `reconcile()`, which keeps existing elements keyed by id/sku/seq and only
+adds or removes, so a button is never swapped out under a click (activity rows are keyed by
+`seq@at` because reset restarts the sequence).
 
-Manual checklist run on 2026-09-22 against `npm start` (all nine items pass; details in the
-journal, Phase 4).
+Manual checklist run on 2026-09-22 against `npm start`: the original nine items (journal, Phase 4)
+and the additions (journal, Phase 6): two-line cart and checkout, remove a line, remove a customer
+with a hold, reset, activity order and colours, no console errors.
 
 ## Likely interview questions
 

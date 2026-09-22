@@ -51,6 +51,11 @@ Each ID is a `describe` block name in the tests.
 | R9 | Only one user gets the last item: stock 1 and 500 simultaneous reserves give exactly 1 success and 499 `OUT_OF_STOCK`. At all times `confirmed + active ≤ totalStock` | The 500-request test passes with the lock; the no-lock companion oversells; the mixed-load test never breaks the inequality |
 | R10 | Unknown product → `NOT_FOUND`; a quantity that is not a positive integer → `VALIDATION`; a `totalStock` that is not a non-negative integer → `VALIDATION`; reducing `totalStock` below `confirmed + active` → `VALIDATION`; creating an existing SKU → `ALREADY_EXISTS` | One test per case |
 | R11 | Every operation is reachable over HTTP with the status codes in §7 | Route tests through `app.request()` |
+| R12 | Reset returns the inventory to its seed: every product and reservation removed (each under its lock), hold time back to default, the audit trail restarted, seed products re-created | After reset only the seed exists, `holdTimeMs` is 120 000, the log is `reset` then `product-created`, and an earlier hold can no longer be confirmed |
+| R13 | Every action by a person or the inventory is recorded in order as `{ seq, at, type, actor, message }`: `reserved`, `rejected`, `confirmed`, `cancelled`, `expired` (when noticed), `product-created`, `stock-adjusted`, `product-deleted`, `hold-time-changed`, `reset`. The store keeps the latest 200 | A create → reserve → rejected reserve → confirm sequence yields exactly those four events with the right actors; 250 events keep seq 51–250 |
+
+R12 and R13 were added on 2026-09-22 after the first hand-over, with the cart, remove-customer and
+activity additions to the page (journal, Phase 6).
 
 **Judgement calls.** R6 puts the boundary at `expiresAt` exactly, so stock is never held a moment
 longer than promised. The brief does not say which side the boundary falls on.
@@ -289,8 +294,12 @@ One table in `app.ts` maps codes to statuses:
 | POST | `/api/reservations/:id/confirm` | | 200 `Reservation` | 404, 409 not Active |
 | POST | `/api/reservations/:id/cancel` | | 200 `Reservation` | 404, 409 not Active |
 | PUT | `/api/settings/hold-time` | `{ holdTimeMs }` | 200 `{ holdTimeMs }` | 400 |
-| GET | `/api/state` | | 200 `Snapshot` (dates as ISO strings) | |
+| GET | `/api/state` | | 200 `Snapshot` (dates as ISO strings; includes `events`) | |
+| POST | `/api/reset` | | 200 `Snapshot` after re-seeding (R12) | 400 if the seed is invalid |
 | GET | `/` | | `public/index.html` | |
+
+Anything thrown inside a handler (a bug, never a domain outcome) is answered as 500
+`{ error: { code: 'INTERNAL', message } }` and reported through an injectable `reportError`.
 
 Malformed JSON or a body that fails the guards → 400 `VALIDATION`. `guards.ts` turns `unknown` into
 typed request objects with hand-written checks (non-empty string, integer). No validation library.
@@ -303,15 +312,20 @@ The service applies the domain rules (positive quantity, non-negative stock, sto
 
 - **Left pane, Inventory.** Add-product form (name, quantity; SKU derived from the name). One row per
   product: name, total with `−` / `+` buttons (PATCH), Remove (DELETE), and live
-  `confirmed / active / available`. Below a divider: hold time in seconds with Apply (PUT).
-- **Right pane, Customers.** Buttons *Add customer* and *Everyone buys now*. Each card is a customer
-  (`Customer 1`, `Customer 2`, …) with a product picker, *Buy*, *Confirm*, *Cancel*, and a status
-  line: `reserved · expires in 1:57`, `confirmed`, `cancelled`, `expired`, or the rejection message
-  (`Out of stock`). *Everyone buys now* sends every idle card's Buy in one `Promise.all`.
+  `confirmed / active / available`. Below a divider: hold time in seconds with Apply (PUT) and
+  *Reset inventory* (POST `/api/reset`). Below that, **Activity**: the audit trail newest first,
+  latest 50 rows, `time · actor · message`, coloured by type.
+- **Right pane, Customers.** Buttons *Add customer* and *Everyone adds to cart*. Each card is a
+  customer (`Customer 1`, `Customer 2`, … from a counter, so a removed name is never reused) with
+  a × that cancels their holds and removes the card; a product picker, a quantity and *Add to cart*
+  (reserve); the **cart** = that customer's Active reservations, one line each with a countdown and
+  *Remove* (cancel); *Checkout* confirms every line; a `Bought:` line lists Confirmed items; a
+  status line shows `cart empty`, `n in cart`, or the rejection message. *Everyone adds to cart*
+  sends every card's Add in one `Promise.all`.
 - **Live data.** The page polls `GET /api/state` once a second; countdowns tick locally from
-  `expiresAt`. Customers exist only in the page; their reservations exist on the server under
-  `userId = customer name`, and each card shows its customer's latest reservation. Several browser
-  tabs against one server work.
+  `expiresAt`. Rows, cart lines and activity rows are reconciled by key rather than rebuilt, so a
+  button is never swapped out under a click. Customers exist only in the page; their reservations
+  exist on the server under `userId = customer name`. Several browser tabs against one server work.
 - **Typing.** `fetch().json()` goes through one typed helper; the same ESLint config applies.
 
 ## 8. Testing strategy (TDD)

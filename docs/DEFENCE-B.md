@@ -136,6 +136,15 @@ Accept an `Idempotency-Key` header, keep a map from key to the first result per 
 the SKU lock check it before deciding, so a retried request returns the same reservation instead of
 holding a second one. The map lives next to the reservations in the store so it survives with them.
 
-**21. (yours)** What would you do differently if you started again?
+**21. How does the audit trail stay consistent with the locking?**
+Each line is written by the service inside the same lock as the decision it records, right after
+the save, so the log order is the real order and a rejected attempt is recorded next to the reserve
+that beat it. It is an append to the store, not a separate system, so it cannot drift from the
+data. Expiry is logged when the system notices it, which is the next write to that product, and
+the log says so rather than pretending to a timer it does not have. The in-memory store keeps the
+latest 200 lines; in production this would be an append-only table or an event stream, which is
+also the natural place for the "one writer per SKU" design.
 
-**22. (yours)** Which part of this code are you least sure about, and why?
+**22. (yours)** What would you do differently if you started again?
+
+**23. (yours)** Which part of this code are you least sure about, and why?

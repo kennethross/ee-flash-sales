@@ -240,3 +240,47 @@ there. This folder started as a copy of A's `docs/`; A's copies were deleted on 
 - **GAP (Kenneth only)** — Not done, by design: choosing A or B; `/grill-me` sessions; rewording
   `DEFENCE-B.md`, the README and commit subjects in his own voice; deciding what ships;
   pushing/submitting. Nothing has been pushed or sent anywhere.
+
+### Phase 6 — Page additions (requested after hand-over)
+
+- **INPUT** — Kenneth, on seeing the finished build: "i think we need to add few more things
+  1. Add into cart 2. Remove customer pane 3. Reset Inventory". Clarifying questions asked before
+  any design.
+- **DECISION (Kenneth)** — Cart = the customer's active holds: "Add to cart" reserves, cart lines
+  are that customer's Active reservations with a countdown and a per-line Remove (cancel),
+  "Checkout" confirms every line. Rejected: page-only cart that reserves at checkout (hides the
+  flash-sale point); server-side atomic multi-SKU cart (a real domain change, half a day).
+- **DECISION (Kenneth)** — Remove one customer card via a × on the card; it cancels that customer's
+  active holds first. Rejected: clear-all button; hiding the whole pane.
+- **DECISION (Kenneth)** — Reset via a server endpoint `POST /api/reset` that clears every product
+  and reservation, re-seeds the demo product and restores the default hold time; a button in the
+  Inventory pane calls it. Rejected: page-only reset through N deletes; reservations-only reset.
+- **INPUT** — Kenneth: "and 1 more thing, in the configuration pane, i wanna see an audit of list of
+  ppl activities".
+- **AI** — Proposed a server-side activity log rather than deriving it from reservations, because
+  the reservations alone cannot show rejected attempts (the flash-sale outcome) or when a
+  transition happened.
+- **DECISION (Kenneth)** — "go" on the four-item design: cart = active holds with Checkout; × per
+  customer card (cancels holds first); `POST /api/reset` re-seeding the demo product; a server-side
+  activity log (`seq, at, type, actor, message`, latest 200 kept, in `Snapshot.events`) shown newest
+  first in the Inventory pane. Spec gains R12 (reset) and R13 (activity). Build runs to completion.
+- **AI** — Server side test-first (`503b8ef`): 10 new tests written and seen failing (module not
+  found; `events` absent; no `/api/reset`), then `activity.ts`, store `appendEvent`/`clearEvents`
+  with a 200-event cap, `#record` in the service inside the lock after each save, `reset(seed)`,
+  `POST /api/reset`, `createApp({ seed })`. `setHoldTime` became async so it can be recorded. One
+  commit for both R12 and R13 because they touch the same service file and route file; splitting
+  would have needed hunk-level staging the pre-commit hook cannot verify per commit.
+- **AI** — Page (`32111b0`): cart lines, Checkout, × per card, Reset inventory, Activity list,
+  quantity per line, customer names from a counter. Added `reconcile()` (keyed DOM updates) so rows,
+  lines and activity entries are not rebuilt each poll — that also removes the Phase 4 observation
+  about stale row buttons. Three bugs found and fixed in Chrome before commit: the order row
+  overflowed the card (grid columns); the activity text inherited the orange `.message` rule
+  (renamed to `.text`); after a reset the activity rows were reused because `seq` restarts
+  (key is now `seq@at`). One lint error (`no-unnecessary-condition`) because TS 5.5+ infers a type
+  predicate from `find((r) => !r.ok)`; simplified. Verified: sale (1 reserved, 2 rejected, both in
+  the log), two-line cart and checkout (`Bought: 1 × Flash Sale Ticket, 2 × Mug`), remove a customer
+  with a Mug hold (cancelled, stock back), reset (log restarts as `reset`, `product-created`).
+  A "lost" click during the check was a stale automation reference, re-tested by coordinates.
+- **AI** — Phase 6 result: 129 tests in 14 files passing; ESLint, `tsc --noEmit` and Prettier clean;
+  coverage 96.9% lines, 93.8% branches, 98.8% functions. README, spec (R12, R13, routes, page),
+  walkthrough, DEFENCE-B (Q21 on the audit trail), checklist, rubric review and plan updated.

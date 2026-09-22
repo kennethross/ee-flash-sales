@@ -4481,3 +4481,22 @@ git commit -m "docs(internal): defence notes, walkthrough, rubric review, submis
 - **Spec coverage:** R1 → Task 4; R2, R3 → Task 9; R4–R7 → Tasks 3 and 9; R8 → Tasks 8 and 9; R9 → Tasks 10 and 12; R10 → Tasks 8, 9, 11; R11 → Tasks 12 and 13. §5 modules → Tasks 2–8, 11–14. §6 locking → Tasks 6, 8, 10. §7 API and page → Tasks 12–14. §8 testing → each task's tests. §9 tooling, hooks, typing → Task 1. §10 git → every commit step. §11 phases → the five phase headings. §12 improvements → Task 15 README.
 - **Placeholders:** the README's `<…>` figures are inputs from named commands, checked by a grep before commit. The walkthrough and defence notes are specified by their outline and question list because they describe code as built.
 - **Type consistency:** `Result`/`Ok`/`Fail` (Task 2) used everywhere; `stockCounts`/`available` (Task 4) in the service; `expireIfDue`/`confirmReservation`/`cancelReservation` (Task 3) in the service; `withLock` (Task 5/6) in the service; `startServer`/`RunningServer`/`DEMO_PRODUCT` (Task 13) in the server test; `makeService`/`unwrap`/`unwrapFailure` (Task 8) in Tasks 9–12.
+
+---
+
+## Phase 6 — Additions requested after hand-over (2026-09-22)
+
+Approved in conversation (journal, Phase 6); built test-first on top of the finished plan.
+
+### Task 17: Audit trail and reset (R12, R13) — `503b8ef`
+- `src/domain/activity.ts`: `ActivityType`, `ActivityEvent { seq, at, type, actor, message }`, `NewActivityEvent`, `INVENTORY_ACTOR`.
+- `InventoryStore` gains `appendEvent`, `clearEvents`; `snapshot()` returns `events`. `InMemoryStore` assigns `seq`, keeps the latest 200.
+- `InventoryService.#record(type, actor, message)` called inside the lock after each save (create, adjust, delete, hold time, reserved, rejected, confirmed, cancelled, expired-when-noticed); `reset(seed)` deletes every product under its lock, restores the hold time, restarts the log, re-creates the seed; `setHoldTime` is now async. `Snapshot.events`.
+- `POST /api/reset` → 200 `Snapshot`; `createApp(service, { seed })`; `server.ts` passes `[DEMO_PRODUCT]`.
+- Tests: `tests/application/inventory-service.activity.test.ts` (R13 ×4, R12 ×3), store events, route tests for `/api/reset` and `events` in `/api/state`.
+
+### Task 18: Page — cart, remove customer, reset, activity — `32111b0`
+- Cards: header with ×, product + quantity + *Add to cart*, cart lines (Active reservations) with countdown and *Remove*, *Checkout*, `Bought:` line, status. Customer names from a counter.
+- Inventory pane: *Reset inventory*, **Activity** list (newest first, 50 rows, coloured by type).
+- `reconcile()` keeps keyed elements instead of rebuilding rows (activity keyed by `seq@at` because reset restarts `seq`).
+- Verified in Chrome against `npm start`: sale, two-line cart + checkout, remove line, remove customer with a hold, reset, activity order; no console errors.
