@@ -138,3 +138,99 @@ there. This folder started as a copy of A's `docs/`; A's copies were deleted on 
 - **DECISION (Claude, no objection raised)** — Plan executed inline in this session rather than by
   per-task subagents, as for Challenge A: the code is already verified and the walkthrough benefits
   from one context.
+
+### Phase 0 — Foundations
+
+- **AI** — `git init -b main`; repo-local identity `k5hr2s <kennethrosspalermo@gmail.com>` (global
+  untouched). Installed the toolchain at A's versions plus Hono 4.13, `@hono/node-server` 2.1 and
+  Husky 9.1; `npm audit` 0 vulnerabilities. Prettier, ESLint (`strictTypeChecked`), both tsconfigs
+  and `vitest --passWithNoTests` all exit 0 with no source yet.
+- **AI (deviation)** — Vitest exits 1 when there are no test files, which would have blocked the
+  scaffold commits at the pre-commit hook. `test` script is `vitest run --passWithNoTests`; a no-op
+  once tests exist. Recorded here rather than weakening the hook.
+- **AI** — Proved the hooks before the first real commit: `git commit -m "bad subject line"` was
+  refused by `commit-msg` with the allowed types printed. Four commits: scaffold, hooks, CI,
+  internal docs (`0c42f14`, `2fd7c0a`, `183f403`, `caeed91`).
+
+### Phase 1 — Domain
+
+- **AI** — Built test-first in four commits: `Result` (`bea92bf`) · reservation state machine
+  (`4543443`) · product stock arithmetic (`d8ff2bc`) · ports and clocks (`11e7cc9`). Each test file
+  was run and seen to fail for the right reason (module not found; `stockCounts is not a function`)
+  before its implementation was copied in from the verified plan.
+- **AI** — Phase 1 result: 27 tests in 4 files passing; ESLint, `tsc --noEmit` (both configs) and
+  Prettier clean.
+
+### Phase 2 — Core
+
+- **AI** — Built test-first: mutex (`f8fafdf`, 6 tests) · in-memory store (`f1aeb95`, 4) · service
+  with products and snapshot (`ad98ca2`, 16) · reservation lifecycle tests (`341e391`, 22; no
+  production change needed) · concurrency tests (3).
+- **AI (mutation check)** — With `KeyedMutex.withLock` changed to `return task()`, the 500-request
+  test and the mixed-load test both failed; the no-lock companion (which expects an oversell) is the
+  one that passed. File restored from git; all three green again. Worth saying in an interview:
+  the concurrency tests were seen to fail when the lock was removed.
+- **AI** — The concurrency commit was refused once by our own `commit-msg` hook: the summary was 76
+  characters against the 72 limit. Shortened; plan updated to match. The hook works on the author
+  too.
+- **AI** — Phase 2 result: 78 tests in 9 files passing; ESLint, `tsc --noEmit` and Prettier clean.
+
+### Phase 3 — HTTP API
+
+- **AI** — Built test-first: guards (`623aa68`, 15 tests) · routes (`345e2fa`, 20, including the
+  500-request sale over `app.request()`) · server, entry point and a placeholder page (`1e36ca0`,
+  2). Hono's `c.json` accepted `unknown` and serialised `Date` fields as ISO strings, so no wire
+  DTO was needed.
+- **AI** — Smoke through the real entry point (`PORT=3999 npx tsx src/main.ts`): `/api/state` lists
+  the seeded `flash-ticket`; ana's reservation returns 201 Active; ben's returns
+  `{"error":{"code":"OUT_OF_STOCK","message":"Only 0 of flash-ticket available; 1 requested."}}`.
+- **AI** — Phase 3 result: 115 tests in 12 files passing; ESLint, `tsc --noEmit` and Prettier clean.
+
+### Phase 4 — Simulator page
+
+- **AI** — Installed the page (`fc8d296`): `public/index.html` and `src/web/simulator.ts`, compiled
+  by `tsconfig.web.json` to `public/simulator.js` (git-ignored, 11.6 kB). `npm start` on port 3996
+  built and served both. Lint, typecheck, Prettier and the 115 tests unchanged.
+- **AI** — Manual checklist (plan Task 14 step 5) run against the real server in Chrome, all nine
+  items: (1) loads connected with three idle cards; (2) "Everyone buys now" → one `reserved … 1:5x`,
+  two `Only 0 of flash-ticket available; 1 requested.`, Available `0` in red; (3) Confirm → green
+  `confirmed`; (4) Mug (2) added and in every picker, `+`/`−` change Total; (5) hold time 5 s →
+  countdown `0:04` → `expired · Mug`, Available back; (6) Cancel → `cancelled · Mug`, Available up;
+  (7) two more customers, second flash sale → both Mugs sold, the rest refused; (8) Remove Mug →
+  its cards back to `idle` on the next poll; (9) second tab shows the same state. No console
+  errors in either tab. Items 1–5 had also passed on the verification tree before the build.
+- **AI (observation, not a bug)** — Product rows are rebuilt on every one-second poll, so a browser
+  automation reference to a row button goes stale within a second; a human click always lands on
+  the current element. Left as is; a keyed diff is not worth the code for a demo page.
+
+### Phase 5 — Write-up
+
+- **AI** — Ran the `/rubric-reviewer` protocol against EE's eight criteria before writing the
+  README, so accepted fixes land before the figures are quoted. Report:
+  `docs/working/RUBRIC-REVIEW.md` (caveat recorded there: same AI session as the builder).
+  Findings and dispositions, each fix test-first and one commit:
+  - R-001 MINOR — unexpected errors answered as Hono's `text/plain` 500. Fixed (`67a1125`):
+    `app.onError` → JSON `{ error: { code: 'INTERNAL', … } }` with an injectable `reportError`.
+  - R-002 MINOR — `Number.isInteger(2 ** 53)` passes validation. Fixed (`5c86bdd`): `isSafeInteger`.
+  - R-003 MINOR — no graceful shutdown. Fixed (`785bb23`): SIGINT/SIGTERM close the server, exit 0.
+  - R-004 MINOR — entry point untested. Fixed (`785bb23`): `tests/main.test.ts` spawns
+    `tsx src/main.ts` with `PORT=0`, fetches `/api/state`, sends SIGTERM, asserts exit 0.
+  - R-005…R-010 NOTE — lazy expiry recording, no body limit/health/rate limit, single-file page,
+    delete-removes-reservations, internal docs in history: documented (README, ADR 0003,
+    DEFENCE-B), not changed.
+- **AI** — Rubric fixes result: 119 tests in 13 files passing; coverage 96.4% lines, 93.5%
+  branches, 98.6% functions (the uncovered function is the default `console.error` reporter);
+  ESLint, `tsc --noEmit` and Prettier clean.
+- **AI** — Wrote `README.md` from figures taken from the commands right before (119 tests,
+  coverage above, 44-line mutex); locking strategy section explains the problem, the lock, what is
+  inside it, its properties and where it stops. AI disclosure states that all code, tests and
+  first-draft docs were AI-generated under Kenneth's direction, which decisions were his, what he
+  checked, and where the AI was corrected (Go; Redis/Postgres).
+- **AI** — Wrote three ADRs (`docs/adr/`): async store as the seam · one promise mutex per SKU ·
+  expiry computed on read. Wrote `docs/DEFENCE-B.md` (20 draft answers, two left for Kenneth),
+  `docs/working/WALKTHROUGH.md` (reading order, the mutex line by line, a three-caller trace, why
+  `expireIfDue` identity matters) and `docs/working/SUBMISSION-CHECKLIST.md` (now starting with the
+  A-or-B decision).
+- **GAP (Kenneth only)** — Not done, by design: choosing A or B; `/grill-me` sessions; rewording
+  `DEFENCE-B.md`, the README and commit subjects in his own voice; deciding what ships;
+  pushing/submitting. Nothing has been pushed or sent anywhere.

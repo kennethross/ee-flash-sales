@@ -2424,7 +2424,7 @@ Expected: 78 tests passing across 9 files; lint and typecheck exit 0
 
 ```bash
 git add tests/application/inventory-service.concurrency.test.ts
-git commit -m "test: 500 concurrent reserves sell exactly one, and oversell without the lock (R9)"
+git commit -m "test: 500 concurrent reserves sell exactly one; no lock oversells (R9)"
 ```
 
 ---
