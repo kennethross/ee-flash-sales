@@ -284,3 +284,8 @@ there. This folder started as a copy of A's `docs/`; A's copies were deleted on 
 - **AI** — Phase 6 result: 129 tests in 14 files passing; ESLint, `tsc --noEmit` and Prettier clean;
   coverage 96.9% lines, 93.8% branches, 98.8% functions. README, spec (R12, R13, routes, page),
   walkthrough, DEFENCE-B (Q21 on the audit trail), checklist, rubric review and plan updated.
+- **AI** — Fresh-clone check at `08d0e96`: `npm ci` (0 vulnerabilities), Prettier, ESLint,
+  `tsc --noEmit` ×2 all clean, **129 tests passed in 14 files**, `POST /api/reset` answered from
+  the clean checkout and the page served with the new toolbar. Temporary clone deleted.
+- **GAP (Kenneth only)** — Unchanged: choose A or B; `/grill-me`; reword in his voice; decide what
+  ships; push/submit by 2026-09-23. Nothing has been pushed or sent anywhere.
