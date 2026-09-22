@@ -231,6 +231,12 @@ there. This folder started as a copy of A's `docs/`; A's copies were deleted on 
   `docs/working/WALKTHROUGH.md` (reading order, the mutex line by line, a three-caller trace, why
   `expireIfDue` identity matters) and `docs/working/SUBMISSION-CHECKLIST.md` (now starting with the
   A-or-B decision).
+- **AI** — Committed the write-up: `5b3e0e8 docs: README …` (README + ADRs, ships) and
+  `a9b6933 docs(internal): …` (defence notes, walkthrough, rubric review, checklist, journal, plan).
+- **AI** — Fresh-clone check on 2026-09-22 at `a9b6933`: cloned into an empty directory, `npm ci`
+  (0 vulnerabilities), Prettier clean, ESLint exit 0, `tsc --noEmit` exit 0 on both tsconfigs,
+  **119 tests passed in 13 files**, `npm run build:web` then the entry point served `/api/state`
+  and the page (`Flash Sale Simulator`) from the clean checkout. Temporary clone deleted.
 - **GAP (Kenneth only)** — Not done, by design: choosing A or B; `/grill-me` sessions; rewording
   `DEFENCE-B.md`, the README and commit subjects in his own voice; deciding what ships;
   pushing/submitting. Nothing has been pushed or sent anywhere.
