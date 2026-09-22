@@ -170,11 +170,14 @@ describe('R10 — validation', () => {
     expect(unwrapFailure(await service.reserve('nope', 'ana')).code).toBe('NOT_FOUND');
   });
 
-  it.each([0, -1, 1.5, Number.NaN])('rejects quantity %s with VALIDATION', async (quantity) => {
-    const { service } = makeService();
-    unwrap(await service.createProduct(mugs));
-    expect(unwrapFailure(await service.reserve('mug', 'ana', quantity)).code).toBe('VALIDATION');
-  });
+  it.each([0, -1, 1.5, Number.NaN, 2 ** 53])(
+    'rejects quantity %s with VALIDATION',
+    async (quantity) => {
+      const { service } = makeService();
+      unwrap(await service.createProduct(mugs));
+      expect(unwrapFailure(await service.reserve('mug', 'ana', quantity)).code).toBe('VALIDATION');
+    },
+  );
 
   it('rejects an empty user id with VALIDATION', async () => {
     const { service } = makeService();

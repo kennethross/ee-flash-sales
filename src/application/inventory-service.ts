@@ -232,10 +232,11 @@ function reservationNotFound(id: ReservationId): Fail {
   return fail('NOT_FOUND', `Reservation ${id} does not exist.`);
 }
 
+// Safe integers only: beyond 2^53 the stock arithmetic would silently lose precision.
 function isPositiveInteger(value: number): boolean {
-  return Number.isInteger(value) && value > 0;
+  return Number.isSafeInteger(value) && value > 0;
 }
 
 function isNonNegativeInteger(value: number): boolean {
-  return Number.isInteger(value) && value >= 0;
+  return Number.isSafeInteger(value) && value >= 0;
 }

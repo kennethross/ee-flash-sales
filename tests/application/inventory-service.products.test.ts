@@ -23,6 +23,7 @@ describe('createProduct', () => {
     ['empty name', { ...ticket, name: '' }],
     ['negative stock', { ...ticket, totalStock: -1 }],
     ['fractional stock', { ...ticket, totalStock: 1.5 }],
+    ['stock beyond MAX_SAFE_INTEGER', { ...ticket, totalStock: 2 ** 53 }],
   ])('R10 — rejects %s with VALIDATION', async (_label, input) => {
     const { service } = makeService();
     expect(unwrapFailure(await service.createProduct(input)).code).toBe('VALIDATION');
@@ -60,6 +61,9 @@ describe('adjustStock', () => {
     unwrap(await service.createProduct(ticket));
     expect(unwrapFailure(await service.adjustStock('flash-ticket', -1)).code).toBe('VALIDATION');
     expect(unwrapFailure(await service.adjustStock('flash-ticket', 0.5)).code).toBe('VALIDATION');
+    expect(unwrapFailure(await service.adjustStock('flash-ticket', 2 ** 53)).code).toBe(
+      'VALIDATION',
+    );
   });
 });
 
