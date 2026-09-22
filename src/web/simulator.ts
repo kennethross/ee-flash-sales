@@ -20,11 +20,20 @@ interface ReservationView {
   readonly expiresAt: string;
 }
 
+interface ActivityView {
+  readonly seq: number;
+  readonly at: string;
+  readonly type: string;
+  readonly actor: string;
+  readonly message: string;
+}
+
 interface Snapshot {
   readonly now: string;
   readonly holdTimeMs: number;
   readonly products: readonly ProductView[];
   readonly reservations: readonly ReservationView[];
+  readonly events: readonly ActivityView[];
 }
 
 interface ApiError {
@@ -35,18 +44,22 @@ interface ApiError {
 type ApiResult<T> =
   { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: ApiError };
 
-/** A simulated shopper. Lives only in this page; its reservations live on the server. */
+/** A simulated shopper. Lives only in this page; the cart is their Active reservations on the server. */
 interface Customer {
   readonly name: string;
   readonly card: HTMLElement;
   readonly product: HTMLSelectElement;
-  readonly buy: HTMLButtonElement;
-  readonly confirm: HTMLButtonElement;
-  readonly cancel: HTMLButtonElement;
+  readonly quantity: HTMLInputElement;
+  readonly addToCart: HTMLButtonElement;
+  readonly checkout: HTMLButtonElement;
+  readonly cart: HTMLUListElement;
+  readonly bought: HTMLElement;
   readonly status: HTMLElement;
-  reservation: ReservationView | undefined;
+  lines: readonly ReservationView[];
   message: string;
 }
+
+const ACTIVITY_ROWS = 50;
 
 // ---------- API ----------
 
@@ -86,7 +99,7 @@ function toApiError(json: unknown, status: number): ApiError {
   return { code: 'HTTP', message: `HTTP ${String(status)}` };
 }
 
-// ---------- DOM ----------
+// ---------- DOM helpers ----------
 
 function byId<T extends HTMLElement>(id: string, type: new () => T): T {
   const element = document.getElementById(id);
@@ -104,19 +117,32 @@ const dom = {
   productRows: byId('product-rows', HTMLTableSectionElement),
   holdTimeForm: byId('hold-time-form', HTMLFormElement),
   holdTime: byId('hold-time', HTMLInputElement),
+  resetInventory: byId('reset-inventory', HTMLButtonElement),
   inventoryMessage: byId('inventory-message', HTMLElement),
+  activity: byId('activity', HTMLUListElement),
   addCustomer: byId('add-customer', HTMLButtonElement),
-  everyoneBuys: byId('everyone-buys', HTMLButtonElement),
+  everyoneAdds: byId('everyone-adds', HTMLButtonElement),
   customerCards: byId('customer-cards', HTMLElement),
 };
 
-function makeButton(label: string, className = ''): HTMLButtonElement {
-  const element = document.createElement('button');
-  element.type = 'button';
-  element.textContent = label;
+function el<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  className = '',
+  text = '',
+): HTMLElementTagNameMap[K] {
+  const element = document.createElement(tag);
   if (className !== '') {
     element.className = className;
   }
+  if (text !== '') {
+    element.textContent = text;
+  }
+  return element;
+}
+
+function makeButton(label: string, className = ''): HTMLButtonElement {
+  const element = el('button', className, label);
+  element.type = 'button';
   return element;
 }
 
@@ -126,56 +152,115 @@ function onClick(element: HTMLElement, action: () => Promise<void>): void {
   });
 }
 
-function cell(text: string, className = ''): HTMLTableCellElement {
-  const element = document.createElement('td');
-  element.textContent = text;
-  if (className !== '') {
-    element.className = className;
+/**
+ * Keeps `container`'s children in step with `items` without recreating elements that are still
+ * there, so a button someone is clicking is never swapped out from under the cursor.
+ */
+function reconcile<T>(
+  container: HTMLElement,
+  items: readonly T[],
+  key: (item: T) => string,
+  create: (item: T) => HTMLElement,
+  update: (element: HTMLElement, item: T) => void,
+): void {
+  const existing = new Map<string, HTMLElement>();
+  for (const child of container.children) {
+    if (child instanceof HTMLElement && child.dataset.key !== undefined) {
+      existing.set(child.dataset.key, child);
+    }
   }
-  return element;
+  const next = items.map((item) => {
+    const itemKey = key(item);
+    const found = existing.get(itemKey);
+    if (found !== undefined) {
+      update(found, item);
+      return found;
+    }
+    const element = create(item);
+    element.dataset.key = itemKey;
+    return element;
+  });
+  container.replaceChildren(...next);
+}
+
+function timeOfDay(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour12: false });
 }
 
 // ---------- State ----------
 
 const customers: Customer[] = [];
+const productsBySku = new Map<string, ProductView>();
+let nextCustomerNumber = 1;
 let latest: Snapshot | undefined;
 /** Server clock minus browser clock, so countdowns agree with the server. */
 let clockOffsetMs = 0;
 
 function productName(sku: string): string {
-  return latest?.products.find((product) => product.sku === sku)?.name ?? sku;
+  return productsBySku.get(sku)?.name ?? sku;
 }
 
 // ---------- Inventory pane ----------
 
 function renderProducts(snapshot: Snapshot): void {
-  dom.productRows.replaceChildren(...snapshot.products.map(productRow));
+  productsBySku.clear();
+  for (const product of snapshot.products) {
+    productsBySku.set(product.sku, product);
+  }
+  reconcile(
+    dom.productRows,
+    snapshot.products,
+    (product) => product.sku,
+    createProductRow,
+    updateProductRow,
+  );
   if (document.activeElement !== dom.holdTime) {
     dom.holdTime.value = String(snapshot.holdTimeMs / 1000);
   }
 }
 
-function productRow(product: ProductView): HTMLTableRowElement {
-  const row = document.createElement('tr');
-  const stock = document.createElement('td');
-  const minus = makeButton('−');
-  const plus = makeButton('+');
-  onClick(minus, () => adjustStock(product, -1));
-  onClick(plus, () => adjustStock(product, 1));
-  minus.disabled = product.totalStock === 0;
-  stock.append(minus, ` ${String(product.totalStock)} `, plus);
+function createProductRow(product: ProductView): HTMLTableRowElement {
+  const row = el('tr');
+  const stock = el('td');
+  const minus = makeButton('−', 'minus');
+  const plus = makeButton('+', 'plus');
+  onClick(minus, () => adjustStock(product.sku, -1));
+  onClick(plus, () => adjustStock(product.sku, 1));
+  stock.append(minus, el('span', 'total'), plus);
   const remove = makeButton('Remove');
-  onClick(remove, () => removeProduct(product));
+  onClick(remove, () => removeProduct(product.sku));
+  const actions = el('td');
+  actions.append(remove);
   row.append(
-    cell(product.name),
+    el('td', 'name'),
     stock,
-    cell(String(product.confirmed)),
-    cell(String(product.active)),
-    cell(String(product.available), product.available === 0 ? 'zero' : ''),
-    cell(''),
+    el('td', 'confirmed'),
+    el('td', 'active'),
+    el('td', 'available'),
+    actions,
   );
-  row.lastElementChild?.append(remove);
+  updateProductRow(row, product);
   return row;
+}
+
+function updateProductRow(row: HTMLElement, product: ProductView): void {
+  setText(row, '.name', product.name);
+  setText(row, '.total', ` ${String(product.totalStock)} `);
+  setText(row, '.confirmed', String(product.confirmed));
+  setText(row, '.active', String(product.active));
+  setText(row, '.available', String(product.available));
+  row.querySelector('.available')?.classList.toggle('zero', product.available === 0);
+  const minus = row.querySelector('.minus');
+  if (minus instanceof HTMLButtonElement) {
+    minus.disabled = product.totalStock === 0;
+  }
+}
+
+function setText(root: HTMLElement, selector: string, text: string): void {
+  const target = root.querySelector(selector);
+  if (target !== null && target.textContent !== text) {
+    target.textContent = text;
+  }
 }
 
 function slug(name: string): string {
@@ -202,20 +287,20 @@ async function addProduct(): Promise<void> {
   await refresh();
 }
 
-async function adjustStock(product: ProductView, delta: number): Promise<void> {
-  const result = await api<ProductView>(
-    'PATCH',
-    `/api/products/${encodeURIComponent(product.sku)}`,
-    {
-      totalStock: product.totalStock + delta,
-    },
-  );
+async function adjustStock(sku: string, delta: number): Promise<void> {
+  const product = productsBySku.get(sku);
+  if (product === undefined) {
+    return;
+  }
+  const result = await api<ProductView>('PATCH', `/api/products/${encodeURIComponent(sku)}`, {
+    totalStock: product.totalStock + delta,
+  });
   dom.inventoryMessage.textContent = result.ok ? '' : result.error.message;
   await refresh();
 }
 
-async function removeProduct(product: ProductView): Promise<void> {
-  const result = await api<undefined>('DELETE', `/api/products/${encodeURIComponent(product.sku)}`);
+async function removeProduct(sku: string): Promise<void> {
+  const result = await api<undefined>('DELETE', `/api/products/${encodeURIComponent(sku)}`);
   dom.inventoryMessage.textContent = result.ok ? '' : result.error.message;
   await refresh();
 }
@@ -232,43 +317,90 @@ async function applyHoldTime(): Promise<void> {
   await refresh();
 }
 
+async function resetInventory(): Promise<void> {
+  const result = await api<Snapshot>('POST', '/api/reset');
+  dom.inventoryMessage.textContent = result.ok ? 'Inventory reset.' : result.error.message;
+  for (const customer of customers) {
+    customer.message = '';
+  }
+  await refresh();
+}
+
+function renderActivity(snapshot: Snapshot): void {
+  const newestFirst = [...snapshot.events].reverse().slice(0, ACTIVITY_ROWS);
+  // Keyed by sequence and time: a reset restarts the sequence, and the rows must not be reused.
+  reconcile(
+    dom.activity,
+    newestFirst,
+    (event) => `${String(event.seq)}@${event.at}`,
+    (event) => {
+      const item = el('li');
+      item.append(el('time'), el('span', 'actor'), el('span', 'text'));
+      updateActivityRow(item, event);
+      return item;
+    },
+    updateActivityRow,
+  );
+}
+
+function updateActivityRow(item: HTMLElement, event: ActivityView): void {
+  item.className = `activity-${event.type}`;
+  setText(item, 'time', timeOfDay(event.at));
+  setText(item, '.actor', event.actor);
+  setText(item, '.text', event.message);
+}
+
 // ---------- Customers pane ----------
 
 function addCustomer(): void {
-  const name = `Customer ${String(customers.length + 1)}`;
-  const card = document.createElement('article');
-  card.className = 'card';
-  const title = document.createElement('h3');
-  title.textContent = name;
-  const product = document.createElement('select');
+  const name = `Customer ${String(nextCustomerNumber)}`;
+  nextCustomerNumber += 1;
+
+  const card = el('article', 'card');
+  const header = el('header');
+  const remove = makeButton('×', 'remove');
+  remove.setAttribute('aria-label', `Remove ${name}`);
+  header.append(el('h3', '', name), remove);
+
+  const order = el('div', 'order');
+  const product = el('select');
   product.setAttribute('aria-label', `${name} product`);
-  const buy = makeButton('Buy', 'primary');
-  const confirm = makeButton('Confirm');
-  const cancel = makeButton('Cancel');
-  const actions = document.createElement('div');
-  actions.className = 'actions';
-  actions.append(buy, confirm, cancel);
-  const status = document.createElement('p');
-  status.className = 'status';
-  card.append(title, product, actions, status);
+  const quantity = el('input');
+  quantity.type = 'number';
+  quantity.min = '1';
+  quantity.step = '1';
+  quantity.value = '1';
+  quantity.setAttribute('aria-label', `${name} quantity`);
+  const addToCart = makeButton('Add to cart', 'primary');
+  order.append(product, quantity, addToCart);
+
+  const cart = el('ul', 'cart');
+  const actions = el('div', 'actions');
+  const checkout = makeButton('Checkout');
+  actions.append(checkout);
+  const bought = el('p', 'bought');
+  const status = el('p', 'status');
+  card.append(header, order, cart, actions, bought, status);
 
   const customer: Customer = {
     name,
     card,
     product,
-    buy,
-    confirm,
-    cancel,
+    quantity,
+    addToCart,
+    checkout,
+    cart,
+    bought,
     status,
-    reservation: undefined,
+    lines: [],
     message: '',
   };
-  onClick(buy, async () => {
+  onClick(addToCart, async () => {
     await placeOrder(customer);
     await refresh();
   });
-  onClick(confirm, () => act(customer, 'confirm'));
-  onClick(cancel, () => act(customer, 'cancel'));
+  onClick(checkout, () => checkoutFor(customer));
+  onClick(remove, () => removeCustomer(customer));
 
   customers.push(customer);
   dom.customerCards.append(card);
@@ -296,35 +428,59 @@ function syncProductPickers(snapshot: Snapshot): void {
   }
 }
 
-/** Reservations arrive in creation order, so the last one for a user is the current one. */
-function latestReservationFor(userId: string, snapshot: Snapshot): ReservationView | undefined {
-  return snapshot.reservations.filter((reservation) => reservation.userId === userId).at(-1);
-}
-
 function renderCustomer(customer: Customer, snapshot: Snapshot): void {
-  customer.reservation = latestReservationFor(customer.name, snapshot);
-  const holdsStock = customer.reservation?.state === 'Active';
-  customer.buy.disabled = holdsStock;
-  customer.confirm.disabled = !holdsStock;
-  customer.cancel.disabled = !holdsStock;
-  customer.product.disabled = holdsStock;
-  customer.card.dataset.state =
-    customer.message !== '' ? 'rejected' : (customer.reservation?.state.toLowerCase() ?? 'idle');
+  const mine = snapshot.reservations.filter((reservation) => reservation.userId === customer.name);
+  customer.lines = mine.filter((reservation) => reservation.state === 'Active');
+  const bought = mine.filter((reservation) => reservation.state === 'Confirmed');
+
+  reconcile(
+    customer.cart,
+    customer.lines,
+    (line) => line.id,
+    (line) => createCartLine(customer, line),
+    updateCartLine,
+  );
+  customer.checkout.disabled = customer.lines.length === 0;
+  customer.bought.textContent =
+    bought.length === 0
+      ? ''
+      : `Bought: ${bought.map((line) => `${String(line.quantity)} × ${productName(line.sku)}`).join(', ')}`;
+  customer.card.dataset.state = cardState(customer, bought.length);
   customer.status.textContent = statusText(customer);
 }
 
-function statusText(customer: Customer): string {
-  const reservation = customer.reservation;
-  if (reservation?.state === 'Active') {
-    return `reserved ${productName(reservation.sku)} · expires in ${countdown(reservation)}`;
+function createCartLine(customer: Customer, line: ReservationView): HTMLLIElement {
+  const item = el('li');
+  const remove = makeButton('Remove', 'link');
+  onClick(remove, () => removeLine(customer, line.id));
+  item.append(el('span', 'line-name'), el('span', 'countdown'), remove);
+  updateCartLine(item, line);
+  return item;
+}
+
+function updateCartLine(item: HTMLElement, line: ReservationView): void {
+  setText(item, '.line-name', `${String(line.quantity)} × ${productName(line.sku)}`);
+  setText(item, '.countdown', `expires in ${countdown(line)}`);
+}
+
+function cardState(customer: Customer, boughtCount: number): string {
+  if (customer.message !== '') {
+    return 'rejected';
   }
+  if (customer.lines.length > 0) {
+    return 'active';
+  }
+  return boughtCount > 0 ? 'confirmed' : 'idle';
+}
+
+function statusText(customer: Customer): string {
   if (customer.message !== '') {
     return customer.message;
   }
-  if (reservation === undefined) {
-    return 'idle';
+  if (customer.lines.length === 0) {
+    return 'cart empty';
   }
-  return `${reservation.state.toLowerCase()} · ${productName(reservation.sku)}`;
+  return `${String(customer.lines.length)} in cart`;
 }
 
 function countdown(reservation: ReservationView): string {
@@ -338,8 +494,11 @@ function countdown(reservation: ReservationView): string {
 
 function tickCountdowns(): void {
   for (const customer of customers) {
-    if (customer.reservation?.state === 'Active') {
-      customer.status.textContent = statusText(customer);
+    for (const line of customer.lines) {
+      const item = customer.cart.querySelector(`[data-key="${line.id}"]`);
+      if (item instanceof HTMLElement) {
+        updateCartLine(item, line);
+      }
     }
   }
 }
@@ -353,27 +512,50 @@ async function placeOrder(customer: Customer): Promise<void> {
   const result = await api<ReservationView>(
     'POST',
     `/api/products/${encodeURIComponent(sku)}/reservations`,
-    { userId: customer.name },
+    { userId: customer.name, quantity: Number(customer.quantity.value) },
   );
   customer.message = result.ok ? '' : result.error.message;
 }
 
-async function act(customer: Customer, action: 'confirm' | 'cancel'): Promise<void> {
-  if (customer.reservation === undefined) {
-    return;
-  }
+async function removeLine(customer: Customer, reservationId: string): Promise<void> {
   const result = await api<ReservationView>(
     'POST',
-    `/api/reservations/${encodeURIComponent(customer.reservation.id)}/${action}`,
+    `/api/reservations/${encodeURIComponent(reservationId)}/cancel`,
   );
   customer.message = result.ok ? '' : result.error.message;
   await refresh();
 }
 
-/** Every customer without an active hold clicks Buy at the same instant. */
-async function everyoneBuys(): Promise<void> {
-  const idle = customers.filter((customer) => customer.reservation?.state !== 'Active');
-  await Promise.all(idle.map(placeOrder));
+/** Confirms every line in the cart at once. */
+async function checkoutFor(customer: Customer): Promise<void> {
+  const results = await Promise.all(
+    customer.lines.map((line) =>
+      api<ReservationView>('POST', `/api/reservations/${encodeURIComponent(line.id)}/confirm`),
+    ),
+  );
+  const failed = results.find((result) => !result.ok);
+  customer.message = failed === undefined ? '' : failed.error.message;
+  await refresh();
+}
+
+/** Cancels the customer's holds so the stock comes back, then drops the card. */
+async function removeCustomer(customer: Customer): Promise<void> {
+  await Promise.all(
+    customer.lines.map((line) =>
+      api<ReservationView>('POST', `/api/reservations/${encodeURIComponent(line.id)}/cancel`),
+    ),
+  );
+  const index = customers.indexOf(customer);
+  if (index !== -1) {
+    customers.splice(index, 1);
+  }
+  customer.card.remove();
+  await refresh();
+}
+
+/** Every customer adds their chosen product at the same instant. */
+async function everyoneAddsToCart(): Promise<void> {
+  await Promise.all(customers.map(placeOrder));
   await refresh();
 }
 
@@ -389,6 +571,7 @@ async function refresh(): Promise<void> {
   clockOffsetMs = Date.parse(latest.now) - Date.now();
   dom.connection.textContent = `connected · ${String(latest.products.length)} products · ${String(latest.reservations.length)} reservations`;
   renderProducts(latest);
+  renderActivity(latest);
   syncProductPickers(latest);
   for (const customer of customers) {
     renderCustomer(customer, latest);
@@ -405,10 +588,11 @@ dom.holdTimeForm.addEventListener('submit', (event) => {
   event.preventDefault();
   void applyHoldTime();
 });
+onClick(dom.resetInventory, resetInventory);
 dom.addCustomer.addEventListener('click', () => {
   addCustomer();
 });
-onClick(dom.everyoneBuys, everyoneBuys);
+onClick(dom.everyoneAdds, everyoneAddsToCart);
 
 addCustomer();
 addCustomer();

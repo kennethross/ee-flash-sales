@@ -132,7 +132,7 @@
       }
       #customer-cards {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
         gap: 12px;
       }
       .card {
@@ -142,19 +142,132 @@
         display: grid;
         gap: 8px;
         border-left-width: 4px;
+        min-width: 0;
+      }
+      .card header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0;
+        border: 0;
+        background: none;
       }
       .card h3 {
         margin: 0;
         font-size: 15px;
       }
+      .card .remove {
+        padding: 0 8px;
+        line-height: 1.4;
+        color: var(--muted);
+      }
+      .card .order {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 60px auto;
+        gap: 6px;
+      }
+      .card .order select {
+        min-width: 0;
+      }
+      .card .order input {
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .card .cart {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 4px;
+        font-size: 14px;
+      }
+      .card .cart li {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 4px 8px;
+        background: var(--page);
+        border-radius: 6px;
+      }
+      .card .cart .line-name {
+        font-weight: 600;
+      }
+      .card .cart .countdown {
+        color: var(--muted);
+        flex: 1;
+      }
+      button.link {
+        border: 0;
+        background: none;
+        padding: 0;
+        color: var(--accent);
+      }
       .card .actions {
         display: flex;
         gap: 6px;
+      }
+      .card .bought {
+        margin: 0;
+        font-size: 14px;
+        color: var(--ok);
+      }
+      .card .bought:empty {
+        display: none;
       }
       .card .status {
         margin: 0;
         font-size: 14px;
         color: var(--muted);
+      }
+      .card[data-state='rejected'] .status {
+        color: var(--bad);
+      }
+      button.danger {
+        color: var(--bad);
+        border-color: var(--bad);
+        margin-left: auto;
+      }
+      .pane h3 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .activity {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        max-height: 320px;
+        overflow-y: auto;
+        font-size: 13px;
+        display: grid;
+        gap: 2px;
+      }
+      .activity li {
+        display: grid;
+        grid-template-columns: 64px 96px 1fr;
+        gap: 8px;
+        padding: 2px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .activity time {
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .activity .actor {
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .activity-rejected .text {
+        color: var(--bad);
+      }
+      .activity-confirmed .text {
+        color: var(--ok);
+      }
+      .activity-expired .text,
+      .activity-cancelled .text {
+        color: var(--warn);
       }
       .card[data-state='active'] {
         border-left-color: var(--accent);
@@ -210,14 +323,18 @@
           <label for="hold-time">Hold time (seconds)</label>
           <input id="hold-time" type="number" min="1" step="1" />
           <button type="submit">Apply</button>
+          <button id="reset-inventory" type="button" class="danger">Reset inventory</button>
         </form>
         <p id="inventory-message" class="message"></p>
+        <hr />
+        <h3>Activity</h3>
+        <ul id="activity" class="activity" aria-live="polite"></ul>
       </section>
       <section class="pane" aria-labelledby="customers-heading">
         <h2 id="customers-heading">Customers</h2>
         <div class="toolbar">
           <button id="add-customer" type="button">Add customer</button>
-          <button id="everyone-buys" type="button" class="primary">Everyone buys now</button>
+          <button id="everyone-adds" type="button" class="primary">Everyone adds to cart</button>
         </div>
         <div id="customer-cards"></div>
       </section>
