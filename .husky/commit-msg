@@ -1,0 +1,8 @@
+subject=$(head -n1 "$1")
+pattern='^(feat|fix|refactor|test|docs|chore|ci|build|perf)(\([a-z-]+\))?!?: .{1,72}$'
+if ! printf '%s\n' "$subject" | grep -Eq "$pattern"; then
+  echo "commit-msg: subject must be '<type>(<scope>)?: <summary>' (max 72 chars)." >&2
+  echo "  types: feat fix refactor test docs chore ci build perf" >&2
+  echo "  got:   $subject" >&2
+  exit 1
+fi
