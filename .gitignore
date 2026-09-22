@@ -1,0 +1,5 @@
+node_modules/
+coverage/
+public/simulator.js
+.DS_Store
+*.log
