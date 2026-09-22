@@ -13,9 +13,15 @@ const STATUS_BY_CODE: Record<FailureCode, ContentfulStatusCode> = {
   ALREADY_EXISTS: 409,
 };
 
+export interface AppOptions {
+  /** Where unexpected errors (bugs, not domain failures) are reported. Defaults to `console.error`. */
+  readonly reportError?: (error: unknown) => void;
+}
+
 /** Routes only: no listening, no static files, so tests can call it in-process. */
-export function createApp(service: InventoryService): Hono {
+export function createApp(service: InventoryService, options: AppOptions = {}): Hono {
   const app = new Hono();
+  const reportError = options.reportError ?? defaultReportError;
 
   app.post('/api/products', async (c) => {
     const parsed = parseCreateProduct(await readJson(c));
@@ -73,7 +79,21 @@ export function createApp(service: InventoryService): Hono {
     ),
   );
 
+  // Domain failures are Result values and never reach here; anything thrown is a bug. The client
+  // gets the same error shape as everywhere else, with nothing about the internals.
+  app.onError((error, c) => {
+    reportError(error);
+    return c.json(
+      { error: { code: 'INTERNAL', message: 'Something went wrong on our side.' } },
+      500,
+    );
+  });
+
   return app;
+}
+
+function defaultReportError(error: unknown): void {
+  console.error('Unexpected error while handling a request:', error);
 }
 
 /** Malformed JSON becomes `undefined`, which the guards reject as "not an object". */

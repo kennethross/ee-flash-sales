@@ -1,7 +1,11 @@
 import type { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
+import { InventoryService, type Snapshot } from '../../src/application/inventory-service';
 import { createApp } from '../../src/http/app';
-import { HOLD_MS, at } from '../support/builders';
+import { KeyedMutex } from '../../src/infrastructure/mutex';
+import { InMemoryStore } from '../../src/infrastructure/store';
+import { HOLD_MS, T0, at } from '../support/builders';
+import { FakeClock } from '../support/fake-clock';
 import { makeService, type ServiceUnderTest } from '../support/service';
 
 interface Response<T> {
@@ -258,5 +262,26 @@ describe('unknown routes', () => {
     const response = await call<ErrorBody>(app, 'GET', '/api/nothing');
     expect(response.status).toBe(404);
     expect(response.body.error.code).toBe('NOT_FOUND');
+  });
+});
+
+describe('unexpected errors', () => {
+  class BrokenService extends InventoryService {
+    override snapshot(): Promise<Snapshot> {
+      return Promise.reject(new Error('boom: a bug, not a domain failure'));
+    }
+  }
+
+  it('answer 500 as JSON without leaking the error, and report it', async () => {
+    const reported: unknown[] = [];
+    const broken = new BrokenService(new InMemoryStore(), new KeyedMutex(), new FakeClock(T0));
+    const app = createApp(broken, { reportError: (error) => reported.push(error) });
+    const response = await call<ErrorBody>(app, 'GET', '/api/state');
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({
+      error: { code: 'INTERNAL', message: 'Something went wrong on our side.' },
+    });
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toBeInstanceOf(Error);
   });
 });
