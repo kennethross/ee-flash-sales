@@ -347,3 +347,9 @@ there. This folder started as a copy of A's `docs/`; A's copies were deleted on 
   `releaseAt` (string vs null vs absent) and the settle switch; each is exercised by at least one
   test, the uncovered ones are the `undefined`-hold defensive branches in `#promote` and
   `leaveWaitlist`. Recorded, not chased.
+- **AI** — Committed `docs:` (README, ADR 0004) and `docs(internal):`. Fresh-clone check at
+  `7e9bc40`: `npm ci` (0 vulnerabilities), Prettier, ESLint, `tsc --noEmit` ×2 clean, **183 tests
+  passed in 16 files**; from the clean checkout, a product released 1 s away with ana in line was
+  `Offered` by the sweeper 2.5 s later with nobody acting. Temporary clone deleted.
+- **GAP (Kenneth only)** — The study steps in `SUBMISSION-CHECKLIST.md` §1–2 still apply to this
+  build (walkthrough, `/grill-me`, DEFENCE-B in his voice, Q25–26). Nothing pushed; no remote.
