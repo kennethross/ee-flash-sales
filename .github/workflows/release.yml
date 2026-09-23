@@ -1,0 +1,27 @@
+name: Release
+
+# One GitHub Release per tag that `npm run release` creates. The notes are that version's section
+# of CHANGELOG.md, so the release page and the changelog cannot disagree.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  github-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Take this version's notes from CHANGELOG.md
+        run: npx tsx scripts/release-notes.ts "${GITHUB_REF_NAME#v}" > release-notes.md
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md
