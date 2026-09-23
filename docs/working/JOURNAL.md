@@ -352,4 +352,47 @@ there. This folder started as a copy of A's `docs/`; A's copies were deleted on 
   passed in 16 files**; from the clean checkout, a product released 1 s away with ana in line was
   `Offered` by the sweeper 2.5 s later with nobody acting. Temporary clone deleted.
 - **GAP (Kenneth only)** — The study steps in `SUBMISSION-CHECKLIST.md` §1–2 still apply to this
-  build (walkthrough, `/grill-me`, DEFENCE-B in his voice, Q25–26). Nothing pushed; no remote.
+  build (walkthrough, `/grill-me`, DEFENCE-B in his voice, Q25–26).
+- **INPUT** — Kenneth: "this should be fine for now. commit and push".
+- **AI** — Found `origin` already set to the public `kennethross/ee-flash-sales` at `0401cd3`
+  (the Phase 6 build, i.e. what was submitted). Local `main` was 7 commits ahead, no divergence.
+  The push was refused by the session's permission classifier as a publication; not worked
+  around. Handed Kenneth the two commands (push `main`, or push to a `waiting-list` branch to
+  leave the submitted history untouched) and flagged that the repo is the submitted one.
+- **INPUT** — Kenneth: "i wanna add 1 more thing, lets containerised the app. this will display on
+  our familiarities with containerisation with multi phase. keep this for future, i wanna add a
+  centralised error handling (i think currenly hono doesnt have it)".
+- **AI (correction)** — Hono has centralised error handling and the app already uses it:
+  `app.onError` (JSON 500, injectable `reportError`), `app.notFound` (JSON 404), and one
+  `respond()` + code→status table for every domain failure. Recorded as a future item with what a
+  further step would add: routes that throw typed errors mapped in one place, request ids on
+  errors, structured logging.
+- **DECISION (Kenneth)** — "approve" on the container design: four-stage Dockerfile (deps →
+  build → test → runtime), the runtime stage taking a marker from the test stage so an image cannot
+  exist without green tests; `node:22-alpine`, non-root `node` user, `HEALTHCHECK` on a new
+  `GET /api/health`; `.dockerignore`, `compose.yaml`, a CI job that builds and probes the image;
+  README section.
+- **AI (deviation)** — The design said `tsc -p tsconfig.build.json` would emit `dist/`. Source
+  imports are extensionless (`./http/server`), which is fine under `moduleResolution: Bundler`
+  but Node's ESM loader rejects at runtime; `tsc` does not add extensions. Rather than touch every
+  import, the server is bundled by esbuild (`--packages=external`, the compiler `tsx` already uses
+  in development); `tsc --noEmit` remains the type gate.
+- **AI** — Built test-first: `GET /api/health` (`86b0582`); esbuild 0.28 and `build:server`,
+  `build`, `start:prod` scripts (`9bb04b1`; `dist/` ignored by git, Prettier and ESLint — the
+  first commit attempt was refused by the pre-commit format check after npm rewrote
+  `package.json`); Dockerfile, `.dockerignore`, `compose.yaml`, CI `image` job (`f8ee31d`).
+- **AI** — `docker build`: the test stage ran **184 tests in 16 files** plus Prettier and ESLint
+  inside the image; runtime stage produced with the marker. `docker run`: `/api/health` ok, page
+  and `simulator.js` served, seeded product present, process user `node`, Docker health
+  `healthy`, `docker stop` completed in 225 ms (SIGTERM handled by `main.ts`). Image 242 MB, of
+  which the app's own layers are under 7 MB (the rest is `node:22-alpine`).
+- **AI** — `docker compose up` first failed with port 3000 in use: a `tsx src/main.ts` started at
+  16:18 from this repo on the default port, not one of the AI's (those ran on 399x ports and
+  were stopped) — left running as Kenneth's. Made the host port configurable
+  (`HOST_PORT`, default 3000) and verified compose on 3989: service `healthy`, health probe ok,
+  `down` clean.
+- **AI** — README "Run in Docker" section, DEFENCE-B Q25 (the Dockerfile stage by stage), checklist
+  and this journal updated. `dist/` added back to `.gitignore` (dropped from A's list at
+  scaffolding time; harmless until the bundle existed).
+- **GAP (Kenneth only)** — Push (`! git push origin main`, or to a branch); confirm the two CI
+  jobs (`verify` on Node 22/24, `image`) are green; the study steps.

@@ -16,7 +16,8 @@ The code, tests, README, ADRs and records are complete. These remain, in order o
 - [ ] Take `/grill-me` sessions on: the mutex line by line · why a Map needs a lock · the no-lock
       test · two instances · expiry on read · reload inside the lock · the audit trail · the
       waiting list's `#promote` and the sweeper · the AI questions.
-- [ ] Rewrite every answer in `docs/DEFENCE-B.md` in your own words. Answer 25 and 26 yourself.
+- [ ] Rewrite every answer in `docs/DEFENCE-B.md` in your own words. Answer 26 and 27 yourself.
+- [ ] Run `docker compose up` once and read the Dockerfile stage by stage (DEFENCE-B Q25).
 
 ## 2. Make the README true
 Every sentence in "AI disclosure" must be true *of you*:

@@ -171,6 +171,19 @@ later; deleting the product or resetting; hold time changed between offers; the 
 priorities or VIP lanes; notifying the person that their turn came (the page polls); persistence
 across restarts, as everywhere else in this build.
 
-**25. (yours)** What would you do differently if you started again?
+**25. Walk me through the Dockerfile. Why four stages?**
+`deps` installs everything once so the later stages share the layer. `build` type-checks, compiles
+the page with `tsc` and bundles the server with esbuild into one `dist/main.js`; esbuild rather
+than `tsc` emit because the source uses extensionless ESM imports, which Node's loader rejects at
+runtime, and esbuild is the compiler `tsx` already uses in development. `test` runs Prettier,
+ESLint and the whole suite and writes a marker file. `runtime` starts again from `node:22-alpine`,
+installs production dependencies only (`--omit=dev --ignore-scripts`, because the `prepare` hook
+installs husky, a dev tool that needs git), copies `dist/` and `public/` from `build` and the
+marker from `test`, so the final image cannot be produced if the tests failed. It runs as the
+non-root `node` user, declares a `HEALTHCHECK` on `/api/health`, and since Node is PID 1 the
+SIGTERM handler in `main.ts` makes `docker stop` graceful (225 ms in practice). The app's layers
+are under 7 MB; the base is the rest. State is in the process, so one replica.
 
-**26. (yours)** Which part of this code are you least sure about, and why?
+**26. (yours)** What would you do differently if you started again?
+
+**27. (yours)** Which part of this code are you least sure about, and why?
