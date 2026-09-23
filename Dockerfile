@@ -27,6 +27,7 @@ RUN npm run typecheck && npm run build
 # 3. test: lint and the whole suite; leaves a marker the runtime stage depends on
 FROM build AS test
 COPY eslint.config.js .prettierrc.json .prettierignore vitest.config.ts ./
+COPY scripts ./scripts
 COPY tests ./tests
 RUN npm run format:check && npm run lint && npm test && touch /app/.tests-passed
 

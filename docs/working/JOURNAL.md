@@ -441,6 +441,13 @@ there. This folder started as a copy of A's `docs/`; A's copies were deleted on 
   DEFENCE-B Q28. Two commits: `docs:` (README, ADR) and `docs(internal):` (defence, journal).
   PR body written for PR 1; the push is Kenneth's (`! git push -u origin chore/release-versioning`),
   then `gh pr create` from here.
+- **INPUT** — Kenneth pushed the branch. `gh pr create` from here was allowed: PR #1 opened.
+- **AI (error)** — CI on the push: `verify` green on Node 22 and 24, `image` red in 23 s. Log:
+  ESLint in the Docker `test` stage, `tests/scripts/release-notes.test.ts` "Unsafe call of a type
+  that could not be resolved" ×5 — the stage copies `tests/` but not `scripts/`, so the import
+  resolved to nothing. The pre-commit hook could not see it (the directory exists locally); a
+  local `docker build` before pushing would have, and this PR changed what the test stage needs.
+  Fix: `COPY scripts ./scripts` in the test stage; `docker build` run locally before the commit.
 - **GAP (Kenneth only)** — After merging PR 1: `git checkout main && git pull &&
   npm run release -- --first-release && git push --follow-tags origin main`, then check the
   `Release` workflow published `v1.0.0`. Every later merge: the same without `--first-release`.
