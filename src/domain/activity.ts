@@ -8,7 +8,12 @@ export type ActivityType =
   | 'confirmed'
   | 'cancelled'
   | 'expired'
-  | 'reset';
+  | 'reset'
+  | 'release-changed'
+  | 'joined-waitlist'
+  | 'left-waitlist'
+  | 'offered'
+  | 'passed';
 
 /** The actor recorded for configuration actions, as opposed to a user id. */
 export const INVENTORY_ACTOR = 'inventory';

@@ -1,6 +1,7 @@
 import type { ActivityEvent, NewActivityEvent } from '../domain/activity';
 import type { Product, Sku } from '../domain/product';
 import type { Reservation, ReservationId } from '../domain/reservation';
+import type { WaitlistEntry, WaitlistId } from '../domain/waitlist';
 
 /**
  * Storage as the service sees it. Every method returns a promise: this is the seam where a
@@ -15,6 +16,10 @@ export interface InventoryStore {
   getReservation(id: ReservationId): Promise<Reservation | undefined>;
   saveReservation(reservation: Reservation): Promise<void>;
   listReservations(sku: Sku): Promise<readonly Reservation[]>;
+  saveWaitlistEntry(entry: WaitlistEntry): Promise<void>;
+  getWaitlistEntry(id: WaitlistId): Promise<WaitlistEntry | undefined>;
+  /** In the order people joined; updating an entry keeps its place. */
+  listWaitlist(sku: Sku): Promise<readonly WaitlistEntry[]>;
   /** Appends to the audit trail. The store assigns `seq` in insertion order and may cap the length. */
   appendEvent(event: NewActivityEvent): Promise<void>;
   clearEvents(): Promise<void>;
@@ -22,6 +27,7 @@ export interface InventoryStore {
     readonly products: readonly Product[];
     readonly reservations: readonly Reservation[];
     readonly events: readonly ActivityEvent[];
+    readonly waitlist: readonly WaitlistEntry[];
   }>;
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Product } from '../../src/domain/product';
 import { InMemoryStore } from '../../src/infrastructure/store';
-import { T0, aReservation } from '../support/builders';
+import { T0, aReservation, anEntry } from '../support/builders';
 
 const ticket: Product = { sku: 'flash-ticket', name: 'Flash Sale Ticket', totalStock: 1 };
 const mug: Product = { sku: 'mug', name: 'Mug', totalStock: 10 };
@@ -53,11 +53,37 @@ describe('InMemoryStore', () => {
       actor: 'ana',
       message: 'reserved 1 × mug',
     });
+    await store.saveWaitlistEntry(anEntry({ id: 'w1', sku: 'mug' }));
     expect(await store.snapshot()).toEqual({
       products: [ticket, mug],
       reservations: [aReservation({ id: 'r1' })],
       events: [{ seq: 1, at: T0, type: 'reserved', actor: 'ana', message: 'reserved 1 × mug' }],
+      waitlist: [anEntry({ id: 'w1', sku: 'mug' })],
     });
+  });
+
+  it('round-trips waiting-list entries per product in insertion order, keeping order on update', async () => {
+    const store = new InMemoryStore();
+    await store.saveWaitlistEntry(anEntry({ id: 'w1', userId: 'ana' }));
+    await store.saveWaitlistEntry(anEntry({ id: 'w2', userId: 'ben' }));
+    await store.saveWaitlistEntry(anEntry({ id: 'w3', userId: 'cy', sku: 'mug' }));
+    await store.saveWaitlistEntry(anEntry({ id: 'w1', userId: 'ana', state: 'Offered' }));
+    expect((await store.listWaitlist('flash-ticket')).map((entry) => entry.id)).toEqual([
+      'w1',
+      'w2',
+    ]);
+    expect((await store.getWaitlistEntry('w1'))?.state).toBe('Offered');
+    expect(await store.getWaitlistEntry('missing')).toBeUndefined();
+  });
+
+  it('deleting a product removes its waiting list only', async () => {
+    const store = new InMemoryStore();
+    await store.saveProduct(ticket);
+    await store.saveWaitlistEntry(anEntry({ id: 'w1' }));
+    await store.saveWaitlistEntry(anEntry({ id: 'w2', sku: 'mug' }));
+    await store.deleteProduct('flash-ticket');
+    expect(await store.getWaitlistEntry('w1')).toBeUndefined();
+    expect(await store.getWaitlistEntry('w2')).toBeDefined();
   });
 
   it('numbers events in insertion order, keeps the latest 200, and can clear them', async () => {
