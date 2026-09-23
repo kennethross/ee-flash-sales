@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  parseAdjustStock,
   parseCreateProduct,
   parseHoldTime,
+  parseJoinWaitlist,
   parseReserve,
+  parseUpdateProduct,
 } from '../../src/http/guards';
 import { unwrapFailure } from '../support/service';
 
@@ -33,13 +34,77 @@ describe('parseCreateProduct', () => {
   });
 });
 
-describe('parseAdjustStock', () => {
-  it('accepts totalStock', () => {
-    expect(parseAdjustStock({ totalStock: 0 })).toEqual({ ok: true, value: { totalStock: 0 } });
+describe('parseCreateProduct with a release time', () => {
+  it('accepts an ISO releaseAt', () => {
+    expect(
+      parseCreateProduct({
+        sku: 'drop',
+        name: 'Drop',
+        totalStock: 1,
+        releaseAt: '2026-10-01T00:00:00.000Z',
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        sku: 'drop',
+        name: 'Drop',
+        totalStock: 1,
+        releaseAt: new Date('2026-10-01T00:00:00.000Z'),
+      },
+    });
   });
 
-  it('rejects a missing totalStock', () => {
-    expect(unwrapFailure(parseAdjustStock({})).message).toBe('"totalStock" must be a number.');
+  it('rejects a releaseAt that is not an ISO date-time', () => {
+    const failure = unwrapFailure(
+      parseCreateProduct({ sku: 'drop', name: 'Drop', totalStock: 1, releaseAt: 'midnight' }),
+    );
+    expect(failure.message).toBe('"releaseAt" must be an ISO 8601 date-time.');
+  });
+});
+
+describe('parseUpdateProduct', () => {
+  it('accepts totalStock alone', () => {
+    expect(parseUpdateProduct({ totalStock: 0 })).toEqual({ ok: true, value: { totalStock: 0 } });
+  });
+
+  it('accepts releaseAt alone, as a date or null to clear it', () => {
+    expect(parseUpdateProduct({ releaseAt: '2026-10-01T00:00:00.000Z' })).toEqual({
+      ok: true,
+      value: { releaseAt: new Date('2026-10-01T00:00:00.000Z') },
+    });
+    expect(parseUpdateProduct({ releaseAt: null })).toEqual({
+      ok: true,
+      value: { releaseAt: null },
+    });
+  });
+
+  it('accepts both together', () => {
+    expect(parseUpdateProduct({ totalStock: 2, releaseAt: null })).toEqual({
+      ok: true,
+      value: { totalStock: 2, releaseAt: null },
+    });
+  });
+
+  it('rejects an empty update', () => {
+    expect(unwrapFailure(parseUpdateProduct({})).message).toBe(
+      'Provide "totalStock" and/or "releaseAt".',
+    );
+  });
+
+  it('rejects a non-numeric totalStock', () => {
+    expect(unwrapFailure(parseUpdateProduct({ totalStock: '3' })).message).toBe(
+      '"totalStock" must be a number.',
+    );
+  });
+});
+
+describe('parseJoinWaitlist', () => {
+  it('accepts a userId', () => {
+    expect(parseJoinWaitlist({ userId: 'ana' })).toEqual({ ok: true, value: { userId: 'ana' } });
+  });
+
+  it('rejects a missing userId', () => {
+    expect(unwrapFailure(parseJoinWaitlist({})).message).toBe('"userId" must be a string.');
   });
 });
 

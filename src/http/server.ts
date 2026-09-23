@@ -18,6 +18,9 @@ export const DEMO_PRODUCT = {
   totalStock: 1,
 } as const;
 
+/** How often the waiting lists are run: release times and expired offers are noticed within this. */
+const SWEEP_INTERVAL_MS = 1_000;
+
 export async function startServer(options: {
   readonly port: number;
   readonly publicDir?: string;
@@ -31,12 +34,20 @@ export async function startServer(options: {
   const app = createApp(service, { seed: [DEMO_PRODUCT] });
   app.use('/*', serveStatic({ root: options.publicDir ?? './public' }));
 
+  // One interval for the whole process, not a timer per entry; restarting resumes from state.
+  const sweeper = setInterval(() => {
+    service.processWaitlists().catch((error: unknown) => {
+      console.error('Waiting-list sweep failed:', error);
+    });
+  }, SWEEP_INTERVAL_MS);
+
   return new Promise((resolve, reject) => {
     const server = serve({ fetch: app.fetch, port: options.port }, (info) => {
       resolve({
         url: `http://localhost:${String(info.port)}`,
         close: () =>
           new Promise<void>((done, failClose) => {
+            clearInterval(sweeper);
             server.close((error) => {
               if (error) {
                 failClose(error);
@@ -47,6 +58,9 @@ export async function startServer(options: {
           }),
       });
     });
-    server.once('error', reject);
+    server.once('error', (error: unknown) => {
+      clearInterval(sweeper);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    });
   });
 }

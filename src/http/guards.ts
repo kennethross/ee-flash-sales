@@ -4,15 +4,22 @@ export interface CreateProductBody {
   readonly sku: string;
   readonly name: string;
   readonly totalStock: number;
+  readonly releaseAt?: Date;
 }
 
-export interface AdjustStockBody {
-  readonly totalStock: number;
+/** At least one field is present. `releaseAt: null` clears the release time. */
+export interface UpdateProductBody {
+  readonly totalStock?: number;
+  readonly releaseAt?: Date | null;
 }
 
 export interface ReserveBody {
   readonly userId: string;
   readonly quantity: number;
+}
+
+export interface JoinWaitlistBody {
+  readonly userId: string;
 }
 
 export interface HoldTimeBody {
@@ -40,19 +47,47 @@ export function parseCreateProduct(value: unknown): Result<CreateProductBody> {
   if (!totalStock.ok) {
     return totalStock;
   }
-  return ok({ sku: sku.value, name: name.value, totalStock: totalStock.value });
+  const base = { sku: sku.value, name: name.value, totalStock: totalStock.value };
+  if (record.value.releaseAt === undefined) {
+    return ok(base);
+  }
+  const releaseAt = readDate(record.value, 'releaseAt');
+  if (!releaseAt.ok) {
+    return releaseAt;
+  }
+  return ok({ ...base, releaseAt: releaseAt.value });
 }
 
-export function parseAdjustStock(value: unknown): Result<AdjustStockBody> {
+export function parseUpdateProduct(value: unknown): Result<UpdateProductBody> {
   const record = asRecord(value);
   if (!record.ok) {
     return record;
   }
-  const totalStock = readNumber(record.value, 'totalStock');
-  if (!totalStock.ok) {
-    return totalStock;
+  const hasStock = record.value.totalStock !== undefined;
+  const hasRelease = record.value.releaseAt !== undefined;
+  if (!hasStock && !hasRelease) {
+    return fail('VALIDATION', 'Provide "totalStock" and/or "releaseAt".');
   }
-  return ok({ totalStock: totalStock.value });
+  let update: UpdateProductBody = {};
+  if (hasStock) {
+    const totalStock = readNumber(record.value, 'totalStock');
+    if (!totalStock.ok) {
+      return totalStock;
+    }
+    update = { ...update, totalStock: totalStock.value };
+  }
+  if (hasRelease) {
+    if (record.value.releaseAt === null) {
+      update = { ...update, releaseAt: null };
+    } else {
+      const releaseAt = readDate(record.value, 'releaseAt');
+      if (!releaseAt.ok) {
+        return releaseAt;
+      }
+      update = { ...update, releaseAt: releaseAt.value };
+    }
+  }
+  return ok(update);
 }
 
 export function parseReserve(value: unknown): Result<ReserveBody> {
@@ -72,6 +107,15 @@ export function parseReserve(value: unknown): Result<ReserveBody> {
     return quantity;
   }
   return ok({ userId: userId.value, quantity: quantity.value });
+}
+
+export function parseJoinWaitlist(value: unknown): Result<JoinWaitlistBody> {
+  const record = asRecord(value);
+  if (!record.ok) {
+    return record;
+  }
+  const userId = readString(record.value, 'userId');
+  return userId.ok ? ok({ userId: userId.value }) : userId;
 }
 
 export function parseHoldTime(value: unknown): Result<HoldTimeBody> {
@@ -103,4 +147,15 @@ function readNumber(record: Record<string, unknown>, key: string): Result<number
   return typeof value === 'number' && Number.isFinite(value)
     ? ok(value)
     : fail('VALIDATION', `"${key}" must be a number.`);
+}
+
+function readDate(record: Record<string, unknown>, key: string): Result<Date> {
+  const value = record[key];
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return ok(parsed);
+    }
+  }
+  return fail('VALIDATION', `"${key}" must be an ISO 8601 date-time.`);
 }

@@ -315,6 +315,121 @@ describe('unknown routes', () => {
   });
 });
 
+describe('R14–R18 over HTTP — coming-soon products and the waiting list', () => {
+  const releaseAt = at(60_000).toISOString();
+  const drop = { sku: 'drop', name: 'Limited Drop', totalStock: 1, releaseAt };
+
+  it('creates a coming-soon product: released false, releaseAt as ISO', async () => {
+    const { app } = setup();
+    const response = await call<{ released: boolean; releaseAt: string }>(
+      app,
+      'POST',
+      '/api/products',
+      drop,
+    );
+    expect(response.status).toBe(201);
+    expect(response.body).toMatchObject({ released: false, releaseAt, waiting: 0 });
+  });
+
+  it('reserve before release: 409 NOT_RELEASED', async () => {
+    const { app } = setup();
+    await call(app, 'POST', '/api/products', drop);
+    const response = await call<ErrorBody>(app, 'POST', '/api/products/drop/reservations', {
+      userId: 'ana',
+    });
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('NOT_RELEASED');
+  });
+
+  it('join: 201 with the position; again: 409 ALREADY_QUEUED', async () => {
+    const { app } = setup();
+    await call(app, 'POST', '/api/products', drop);
+    const first = await call<{ userId: string; state: string; position: number }>(
+      app,
+      'POST',
+      '/api/products/drop/waitlist',
+      { userId: 'ana' },
+    );
+    expect(first.status).toBe(201);
+    expect(first.body).toMatchObject({ userId: 'ana', state: 'Waiting', position: 1 });
+    const again = await call<ErrorBody>(app, 'POST', '/api/products/drop/waitlist', {
+      userId: 'ana',
+    });
+    expect(again.status).toBe(409);
+    expect(again.body.error.code).toBe('ALREADY_QUEUED');
+  });
+
+  it('join validates the body and the product', async () => {
+    const { app } = setup();
+    expect((await call(app, 'POST', '/api/products/nope/waitlist', { userId: 'ana' })).status).toBe(
+      404,
+    );
+    await call(app, 'POST', '/api/products', drop);
+    expect((await call(app, 'POST', '/api/products/drop/waitlist', {})).status).toBe(400);
+  });
+
+  it('PATCH releaseAt to null releases the product and offers the first in line', async () => {
+    const { app } = setup();
+    await call(app, 'POST', '/api/products', drop);
+    await call(app, 'POST', '/api/products/drop/waitlist', { userId: 'ana' });
+    const response = await call<{ released: boolean; active: number; waiting: number }>(
+      app,
+      'PATCH',
+      '/api/products/drop',
+      { releaseAt: null },
+    );
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ released: true, active: 1, waiting: 0 });
+  });
+
+  it('PATCH with both totalStock and releaseAt applies both', async () => {
+    const { app } = setup();
+    await call(app, 'POST', '/api/products', drop);
+    const response = await call<{ totalStock: number; releaseAt: string }>(
+      app,
+      'PATCH',
+      '/api/products/drop',
+      {
+        totalStock: 5,
+        releaseAt: at(1_000).toISOString(),
+      },
+    );
+    expect(response.body).toMatchObject({ totalStock: 5, releaseAt: at(1_000).toISOString() });
+  });
+
+  it('PATCH with nothing to change: 400', async () => {
+    const { app } = setup();
+    await call(app, 'POST', '/api/products', drop);
+    expect((await call(app, 'PATCH', '/api/products/drop', {})).status).toBe(400);
+  });
+
+  it('leave: 204, then 404', async () => {
+    const { app } = setup();
+    await call(app, 'POST', '/api/products', drop);
+    const joined = await call<{ id: string }>(app, 'POST', '/api/products/drop/waitlist', {
+      userId: 'ana',
+    });
+    expect((await call(app, 'DELETE', `/api/waitlist/${joined.body.id}`)).status).toBe(204);
+    expect((await call(app, 'DELETE', `/api/waitlist/${joined.body.id}`)).status).toBe(409);
+    expect((await call(app, 'DELETE', '/api/waitlist/nope')).status).toBe(404);
+  });
+
+  it('GET /api/state carries the waiting list with positions', async () => {
+    const { app } = setup();
+    await call(app, 'POST', '/api/products', drop);
+    await call(app, 'POST', '/api/products/drop/waitlist', { userId: 'ana' });
+    await call(app, 'POST', '/api/products/drop/waitlist', { userId: 'ben' });
+    const response = await call<{
+      waitlist: { userId: string; position: number; joinedAt: string }[];
+    }>(app, 'GET', '/api/state');
+    expect(response.body.waitlist.map((e) => [e.userId, e.position])).toEqual([
+      ['ana', 1],
+      ['ben', 2],
+    ]);
+    expect(response.body.waitlist[0]?.joinedAt).toBe(T0.toISOString());
+  });
+});
+
 describe('unexpected errors', () => {
   class BrokenService extends InventoryService {
     override snapshot(): Promise<Snapshot> {

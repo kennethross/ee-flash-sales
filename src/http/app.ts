@@ -2,7 +2,13 @@ import { Hono, type Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { CreateProductInput, InventoryService } from '../application/inventory-service';
 import type { FailureCode, Result } from '../domain/failures';
-import { parseAdjustStock, parseCreateProduct, parseHoldTime, parseReserve } from './guards';
+import {
+  parseCreateProduct,
+  parseHoldTime,
+  parseJoinWaitlist,
+  parseReserve,
+  parseUpdateProduct,
+} from './guards';
 
 /** The one place a failure code becomes an HTTP status. */
 const STATUS_BY_CODE: Record<FailureCode, ContentfulStatusCode> = {
@@ -38,11 +44,19 @@ export function createApp(service: InventoryService, options: AppOptions = {}): 
   });
 
   app.patch('/api/products/:sku', async (c) => {
-    const parsed = parseAdjustStock(await readJson(c));
+    const parsed = parseUpdateProduct(await readJson(c));
     if (!parsed.ok) {
       return respond(c, parsed);
     }
-    return respond(c, await service.adjustStock(c.req.param('sku'), parsed.value.totalStock));
+    const sku = c.req.param('sku');
+    const { totalStock, releaseAt } = parsed.value;
+    if (totalStock !== undefined) {
+      const adjusted = await service.adjustStock(sku, totalStock);
+      if (!adjusted.ok || releaseAt === undefined) {
+        return respond(c, adjusted);
+      }
+    }
+    return respond(c, await service.setReleaseAt(sku, releaseAt ?? undefined));
   });
 
   app.delete('/api/products/:sku', async (c) => {
@@ -57,6 +71,19 @@ export function createApp(service: InventoryService, options: AppOptions = {}): 
     }
     const { userId, quantity } = parsed.value;
     return respond(c, await service.reserve(c.req.param('sku'), userId, quantity), 201);
+  });
+
+  app.post('/api/products/:sku/waitlist', async (c) => {
+    const parsed = parseJoinWaitlist(await readJson(c));
+    if (!parsed.ok) {
+      return respond(c, parsed);
+    }
+    return respond(c, await service.joinWaitlist(c.req.param('sku'), parsed.value.userId), 201);
+  });
+
+  app.delete('/api/waitlist/:id', async (c) => {
+    const result = await service.leaveWaitlist(c.req.param('id'));
+    return result.ok ? c.body(null, 204) : respond(c, result);
   });
 
   app.post('/api/reservations/:id/confirm', async (c) =>
