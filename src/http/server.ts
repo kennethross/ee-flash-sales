@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
+import pkg from '../../package.json' with { type: 'json' };
 import { InventoryService } from '../application/inventory-service';
 import { SystemClock } from '../infrastructure/clock';
 import { KeyedMutex } from '../infrastructure/mutex';
@@ -31,7 +32,8 @@ export async function startServer(options: {
     throw new Error(`Could not seed the demo product: ${seeded.failure.message}`);
   }
 
-  const app = createApp(service, { seed: [DEMO_PRODUCT] });
+  // The version is inlined at build time (esbuild) or read by tsx in development: one source, package.json.
+  const app = createApp(service, { seed: [DEMO_PRODUCT], version: pkg.version });
   app.use('/*', serveStatic({ root: options.publicDir ?? './public' }));
 
   // One interval for the whole process, not a timer per entry; restarting resumes from state.

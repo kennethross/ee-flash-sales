@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import pkg from '../../package.json' with { type: 'json' };
 import { DEMO_PRODUCT, startServer, type RunningServer } from '../../src/http/server';
 
 let server: RunningServer | undefined;
@@ -42,6 +43,12 @@ describe('startServer', () => {
     expect(state.waitlist[0]?.state).toBe('Offered');
     expect(state.reservations[0]).toMatchObject({ userId: 'ana', state: 'Active' });
   }, 10_000);
+
+  it('reports the package version on /api/health', async () => {
+    server = await startServer({ port: 0 });
+    const body = (await (await fetch(`${server.url}/api/health`)).json()) as { version?: string };
+    expect(body.version).toBe(pkg.version);
+  });
 
   it('serves the page at /', async () => {
     server = await startServer({ port: 0 });

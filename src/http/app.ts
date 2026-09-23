@@ -27,6 +27,8 @@ export interface AppOptions {
   readonly reportError?: (error: unknown) => void;
   /** What `POST /api/reset` re-creates after clearing everything. Defaults to nothing. */
   readonly seed?: readonly CreateProductInput[];
+  /** Reported by `GET /api/health`, so a running deployment can be matched to a release. */
+  readonly version?: string;
 }
 
 /** Routes only: no listening, no static files, so tests can call it in-process. */
@@ -34,6 +36,8 @@ export function createApp(service: InventoryService, options: AppOptions = {}): 
   const app = new Hono();
   const reportError = options.reportError ?? defaultReportError;
   const seed = options.seed ?? [];
+  const health =
+    options.version === undefined ? { status: 'ok' } : { status: 'ok', version: options.version };
 
   app.post('/api/products', async (c) => {
     const parsed = parseCreateProduct(await readJson(c));
@@ -106,7 +110,7 @@ export function createApp(service: InventoryService, options: AppOptions = {}): 
   app.get('/api/state', async (c) => c.json(await service.snapshot()));
 
   /** For load balancers and container health checks: the process is up and answering. */
-  app.get('/api/health', (c) => c.json({ status: 'ok' }));
+  app.get('/api/health', (c) => c.json(health));
 
   app.post('/api/reset', async (c) => respond(c, await service.reset(seed)));
 

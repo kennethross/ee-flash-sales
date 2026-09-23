@@ -313,6 +313,13 @@ describe('GET /api/health', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ status: 'ok' });
   });
+
+  it('reports the version the app was built with, so a deployment can be checked', async () => {
+    const sut = makeService();
+    const app = createApp(sut.service, { version: '9.9.9' });
+    const response = await call<{ status: string; version: string }>(app, 'GET', '/api/health');
+    expect(response.body).toEqual({ status: 'ok', version: '9.9.9' });
+  });
 });
 
 describe('unknown routes', () => {
