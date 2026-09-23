@@ -5,8 +5,9 @@ Submitted for the Everest Engineering coding challenge (Challenge B).
 
 - **Stack:** TypeScript (strict), Node ≥ 22.13, Hono, Vitest. Two runtime dependencies (`hono`,
   `@hono/node-server`).
-- **Tests:** 183 tests in 16 files, including four concurrency tests; coverage 96.5% lines,
-  91.4% branches, 97.4% functions on `src/` (page excluded).
+- **Tests:** 184 tests in 16 files, including four concurrency tests; coverage 96.5% lines,
+  91.4% branches, 97.4% functions on `src/` (page excluded). The Docker build runs them all
+  before an image can exist.
 - **Locking:** one promise-chain mutex per product around every write. See
   [Locking strategy](#locking-strategy).
 
@@ -16,6 +17,7 @@ Submitted for the Everest Engineering coding challenge (Challenge B).
 npm ci
 npm test
 npm start          # builds the page and serves http://localhost:3000 (PORT to change)
+npm run start:prod # same, from the esbuild bundle in dist/ (what the container runs)
 ```
 
 `npm start` seeds one product, **Flash Sale Ticket** with stock 1. Open the page, click **Everyone
@@ -23,6 +25,24 @@ adds to cart**, and watch one customer get it and the rest get `Only 0 of flash-
 requested.`, with every attempt in the **Activity** list. A cart is the customer's active holds:
 **Checkout** confirms them, **Remove** cancels one, and a hold expires on its own (set the hold time
 to 10 seconds to watch that happen). **Reset inventory** puts everything back to the seed.
+
+## Run in Docker
+
+```bash
+docker compose up            # builds the image, serves http://localhost:3000, health-checked
+HOST_PORT=8080 docker compose up
+docker build -t inventory-reservation . && docker run --rm -p 3000:3000 inventory-reservation
+```
+
+The `Dockerfile` has four stages: **deps** (`npm ci`), **build** (type-check, compile the page
+with `tsc`, bundle the server with esbuild into `dist/main.js`), **test** (Prettier, ESLint and the
+whole suite, leaving a marker file), and **runtime** (`node:22-alpine`, production dependencies
+only, the compiled output, and the marker copied from the test stage, so an image cannot be
+produced unless the tests passed). The runtime stage runs as the non-root `node` user, declares a
+`HEALTHCHECK` on `GET /api/health`, and handles SIGTERM itself so `docker stop` is graceful. The
+app's own layers are under 7 MB; the rest of the ~240 MB image is the Node base.
+
+State lives in the process, so run one replica; `compose.yaml` says so.
 
 ## What it does
 
@@ -55,8 +75,9 @@ server-side, nothing leaked).
 | POST | `/api/reservations/:id/confirm` | | 200 reservation |
 | POST | `/api/reservations/:id/cancel` | | 200 reservation |
 | PUT | `/api/settings/hold-time` | `{ holdTimeMs }` | 200 `{ holdTimeMs }` |
-| GET | `/api/state` | | 200 products, reservations, events, hold time |
+| GET | `/api/state` | | 200 products, reservations, events, waitlist, hold time |
 | POST | `/api/reset` | | 200 the state after re-seeding |
+| GET | `/api/health` | | 200 `{ status: "ok" }` |
 
 A product view carries `confirmed`, `active`, `available`, `released` and `waiting` alongside
 `totalStock`. Dates are ISO strings. `events` is the audit trail, oldest first, as
@@ -190,7 +211,7 @@ spec (`R1` … `R11`), so the brief's rules can be traced to the tests that hold
 - **Page:** type-checked, exercised by hand (checklist in the design record); not browser-tested.
 
 ```bash
-npm test               # 183 tests
+npm test               # 184 tests
 npm run test:coverage
 npm run lint && npm run typecheck && npm run format:check
 ```
@@ -210,7 +231,11 @@ conventional subjects.
 5. **Backpressure:** fail fast once sold out instead of joining the queue; cap queue length.
 6. **Ownership** on confirm and cancel.
 7. **Observability:** request ids, structured logs, metrics for rejections and lock wait time.
-8. **Operations:** request body limit, health endpoint, rate limiting.
+8. **Operations:** request body limit and rate limiting (a health endpoint and a container image
+   exist).
+9. **Error handling, one step further.** `app.onError`, `app.notFound` and the code→status table
+   already centralise it; the next step is routes that throw typed errors mapped in one place,
+   request ids on every error body, and structured logging of the reported ones.
 
 ## AI disclosure
 
