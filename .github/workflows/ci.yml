@@ -17,3 +17,18 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t inventory-reservation .
+      - name: Start the container and probe it
+        run: |
+          docker run -d --rm -p 3000:3000 --name inventory inventory-reservation
+          for i in $(seq 1 20); do
+            curl -sf localhost:3000/api/health && break
+            sleep 1
+          done
+          curl -sf localhost:3000/api/health
+          curl -sf localhost:3000/ | grep -q 'Flash Sale Simulator'
+          docker stop inventory
