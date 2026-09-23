@@ -94,7 +94,9 @@ describe('R12 — reset returns the inventory to its seed', () => {
     const snapshot = unwrap(await service.reset([ticket]));
 
     expect(snapshot.holdTimeMs).toBe(120_000);
-    expect(snapshot.products).toEqual([{ ...ticket, confirmed: 0, active: 0, available: 1 }]);
+    expect(snapshot.products).toEqual([
+      { ...ticket, confirmed: 0, active: 0, available: 1, released: true, waiting: 0 },
+    ]);
     expect(snapshot.reservations).toEqual([]);
     expect(snapshot.events.map(brief)).toEqual([
       ['reset', INVENTORY_ACTOR],

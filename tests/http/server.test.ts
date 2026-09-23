@@ -15,7 +15,9 @@ describe('startServer', () => {
     const response = await fetch(`${server.url}/api/state`);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { products: { sku: string; available: number }[] };
-    expect(body.products).toEqual([{ ...DEMO_PRODUCT, confirmed: 0, active: 0, available: 1 }]);
+    expect(body.products).toEqual([
+      { ...DEMO_PRODUCT, confirmed: 0, active: 0, available: 1, released: true, waiting: 0 },
+    ]);
   });
 
   it('serves the page at /', async () => {

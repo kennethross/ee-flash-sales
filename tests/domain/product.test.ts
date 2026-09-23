@@ -1,8 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import { available, stockCounts, type Product } from '../../src/domain/product';
-import { HOLD_MS, T0, aReservation, at } from '../support/builders';
+import { available, isReleased, stockCounts, type Product } from '../../src/domain/product';
+import { HOLD_MS, T0, aReservation, anEntry, at } from '../support/builders';
 
 const ticket: Product = { sku: 'flash-ticket', name: 'Flash Sale Ticket', totalStock: 5 };
+const comingSoon: Product = { ...ticket, releaseAt: at(60_000) };
+
+describe('R14 — a product is released at releaseAt exactly, or always when it has none', () => {
+  it('has no release time: released', () => {
+    expect(isReleased(ticket, T0)).toBe(true);
+  });
+
+  it('one millisecond before releaseAt: not released', () => {
+    expect(isReleased(comingSoon, at(59_999))).toBe(false);
+  });
+
+  it('at releaseAt: released', () => {
+    expect(isReleased(comingSoon, at(60_000))).toBe(true);
+  });
+
+  it('the view carries released and the number waiting', () => {
+    const waitlist = [
+      anEntry({ id: 'w1', userId: 'ana' }),
+      anEntry({ id: 'w2', userId: 'ben' }),
+      anEntry({ id: 'w3', userId: 'cy', state: 'Offered', reservationId: 'r' }),
+      anEntry({ id: 'w4', userId: 'dee', sku: 'other' }),
+    ];
+    expect(stockCounts(comingSoon, [], T0, waitlist)).toMatchObject({
+      released: false,
+      waiting: 2,
+      releaseAt: at(60_000),
+    });
+    expect(stockCounts(ticket, [], T0)).toMatchObject({ released: true, waiting: 0 });
+  });
+});
 
 describe('R1 — available = total − confirmed − active', () => {
   it('counts confirmed and active reservations against total stock', () => {
@@ -16,6 +46,8 @@ describe('R1 — available = total − confirmed − active', () => {
       confirmed: 2,
       active: 1,
       available: 2,
+      released: true,
+      waiting: 0,
     });
   });
 

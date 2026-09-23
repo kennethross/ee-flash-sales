@@ -1,5 +1,12 @@
 export type FailureCode =
-  'OUT_OF_STOCK' | 'NOT_FOUND' | 'INVALID_STATE' | 'VALIDATION' | 'ALREADY_EXISTS';
+  | 'OUT_OF_STOCK'
+  | 'NOT_FOUND'
+  | 'INVALID_STATE'
+  | 'VALIDATION'
+  | 'ALREADY_EXISTS'
+  | 'NOT_RELEASED'
+  | 'WAITLIST_ACTIVE'
+  | 'ALREADY_QUEUED';
 
 export interface Failure {
   readonly code: FailureCode;

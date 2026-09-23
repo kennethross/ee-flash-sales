@@ -11,6 +11,9 @@ const STATUS_BY_CODE: Record<FailureCode, ContentfulStatusCode> = {
   OUT_OF_STOCK: 409,
   INVALID_STATE: 409,
   ALREADY_EXISTS: 409,
+  NOT_RELEASED: 409,
+  WAITLIST_ACTIVE: 409,
+  ALREADY_QUEUED: 409,
 };
 
 export interface AppOptions {

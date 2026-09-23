@@ -9,7 +9,14 @@ describe('createProduct', () => {
   it('stores the product and reports it with zero counts', async () => {
     const { service } = makeService();
     const view = unwrap(await service.createProduct(ticket));
-    expect(view).toEqual({ ...ticket, confirmed: 0, active: 0, available: 1 });
+    expect(view).toEqual({
+      ...ticket,
+      confirmed: 0,
+      active: 0,
+      available: 1,
+      released: true,
+      waiting: 0,
+    });
   });
 
   it('R10 — rejects a duplicate sku with ALREADY_EXISTS', async () => {
@@ -36,7 +43,15 @@ describe('adjustStock', () => {
     unwrap(await service.createProduct(ticket));
     unwrap(await service.reserve('flash-ticket', 'ana'));
     const view = unwrap(await service.adjustStock('flash-ticket', 3));
-    expect(view).toEqual({ ...ticket, totalStock: 3, confirmed: 0, active: 1, available: 2 });
+    expect(view).toEqual({
+      ...ticket,
+      totalStock: 3,
+      confirmed: 0,
+      active: 1,
+      available: 2,
+      released: true,
+      waiting: 0,
+    });
   });
 
   it('R10 — rejects an unknown product with NOT_FOUND', async () => {
@@ -93,8 +108,17 @@ describe('snapshot', () => {
     expect(snapshot.now).toEqual(T0);
     expect(snapshot.holdTimeMs).toBe(DEFAULT_HOLD_TIME_MS);
     expect(snapshot.products).toEqual([
-      { ...ticket, confirmed: 0, active: 0, available: 1 },
-      { sku: 'mug', name: 'Mug', totalStock: 2, confirmed: 0, active: 1, available: 1 },
+      { ...ticket, confirmed: 0, active: 0, available: 1, released: true, waiting: 0 },
+      {
+        sku: 'mug',
+        name: 'Mug',
+        totalStock: 2,
+        confirmed: 0,
+        active: 1,
+        available: 1,
+        released: true,
+        waiting: 0,
+      },
     ]);
     expect(snapshot.reservations).toEqual([held]);
   });

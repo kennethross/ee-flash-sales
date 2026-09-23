@@ -44,7 +44,14 @@ describe('R11 — POST /api/products', () => {
     const { app } = setup();
     const response = await call<unknown>(app, 'POST', '/api/products', ticket);
     expect(response.status).toBe(201);
-    expect(response.body).toEqual({ ...ticket, confirmed: 0, active: 0, available: 1 });
+    expect(response.body).toEqual({
+      ...ticket,
+      confirmed: 0,
+      active: 0,
+      available: 1,
+      released: true,
+      waiting: 0,
+    });
   });
 
   it('duplicate sku: 409 ALREADY_EXISTS', async () => {
@@ -90,6 +97,8 @@ describe('R11 — PATCH and DELETE /api/products/:sku', () => {
       confirmed: 0,
       active: 0,
       available: 4,
+      released: true,
+      waiting: 0,
     });
   });
 
@@ -252,7 +261,9 @@ describe('R11 — GET /api/state', () => {
     expect(response.status).toBe(200);
     expect(response.body.now).toBe('2026-09-22T10:00:00.000Z');
     expect(response.body.holdTimeMs).toBe(HOLD_MS);
-    expect(response.body.products).toEqual([{ ...ticket, confirmed: 0, active: 1, available: 0 }]);
+    expect(response.body.products).toEqual([
+      { ...ticket, confirmed: 0, active: 1, available: 0, released: true, waiting: 0 },
+    ]);
     expect(response.body.reservations[0]?.expiresAt).toBe(at(HOLD_MS).toISOString());
     expect(response.body.events.map((event) => [event.type, event.actor])).toEqual([
       ['product-created', 'inventory'],
@@ -279,7 +290,9 @@ describe('R12 — POST /api/reset', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.holdTimeMs).toBe(HOLD_MS);
-    expect(response.body.products).toEqual([{ ...ticket, confirmed: 0, active: 0, available: 1 }]);
+    expect(response.body.products).toEqual([
+      { ...ticket, confirmed: 0, active: 0, available: 1, released: true, waiting: 0 },
+    ]);
     expect(response.body.reservations).toEqual([]);
     expect(response.body.events.map((event) => event.type)).toEqual(['reset', 'product-created']);
   });
