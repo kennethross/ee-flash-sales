@@ -187,3 +187,14 @@ are under 7 MB; the base is the rest. State is in the process, so one replica.
 **26. (yours)** What would you do differently if you started again?
 
 **27. (yours)** Which part of this code are you least sure about, and why?
+
+**28. How does a change become a version, and why is that step not in CI?**
+Every PR merges with its conventional commits intact. On `main`, `npm run release`
+(`commit-and-tag-version`) reads the commits since the last tag and applies semver — `feat` bumps
+the minor, `fix`/`perf` the patch, `!` the major — rewrites `CHANGELOG.md`, bumps `package.json`,
+commits `chore(release): X.Y.Z` through the same hooks as any commit, and tags it. Pushing the tag
+runs a workflow that creates the GitHub Release from that version's changelog section, so the
+release page and the changelog cannot disagree, and `/api/health` reports the version so a
+deployment can be matched to a release. It runs locally because one person works on this
+repository and pushes by hand: no token, no repository setting, every step visible. With a team,
+release-please or semantic-release moves exactly this step into CI. (ADR 0005.)
