@@ -6,6 +6,9 @@ interface ProductView {
   readonly confirmed: number;
   readonly active: number;
   readonly available: number;
+  readonly released: boolean;
+  readonly waiting: number;
+  readonly releaseAt?: string;
 }
 
 type ReservationState = 'Active' | 'Confirmed' | 'Cancelled' | 'Expired';
@@ -18,6 +21,18 @@ interface ReservationView {
   readonly state: ReservationState;
   readonly createdAt: string;
   readonly expiresAt: string;
+}
+
+type WaitlistState = 'Waiting' | 'Offered' | 'Bought' | 'Passed' | 'Left';
+
+interface WaitlistView {
+  readonly id: string;
+  readonly sku: string;
+  readonly userId: string;
+  readonly joinedAt: string;
+  readonly state: WaitlistState;
+  readonly reservationId: string | undefined;
+  readonly position: number | undefined;
 }
 
 interface ActivityView {
@@ -34,6 +49,7 @@ interface Snapshot {
   readonly products: readonly ProductView[];
   readonly reservations: readonly ReservationView[];
   readonly events: readonly ActivityView[];
+  readonly waitlist: readonly WaitlistView[];
 }
 
 interface ApiError {
@@ -52,10 +68,14 @@ interface Customer {
   readonly quantity: HTMLInputElement;
   readonly addToCart: HTMLButtonElement;
   readonly checkout: HTMLButtonElement;
+  readonly queue: HTMLUListElement;
   readonly cart: HTMLUListElement;
   readonly bought: HTMLElement;
   readonly status: HTMLElement;
   lines: readonly ReservationView[];
+  waiting: readonly WaitlistView[];
+  offeredHoldIds: ReadonlySet<string>;
+  missed: string;
   message: string;
 }
 
@@ -114,7 +134,10 @@ const dom = {
   addProductForm: byId('add-product-form', HTMLFormElement),
   productName: byId('product-name', HTMLInputElement),
   productStock: byId('product-stock', HTMLInputElement),
+  productRelease: byId('product-release', HTMLInputElement),
+  releaseSoon: byId('release-soon', HTMLButtonElement),
   productRows: byId('product-rows', HTMLTableSectionElement),
+  waitlists: byId('waitlists', HTMLElement),
   holdTimeForm: byId('hold-time-form', HTMLFormElement),
   holdTime: byId('hold-time', HTMLInputElement),
   resetInventory: byId('reset-inventory', HTMLButtonElement),
@@ -183,8 +206,21 @@ function reconcile<T>(
   container.replaceChildren(...next);
 }
 
+function setText(root: HTMLElement, selector: string, text: string): void {
+  const target = root.querySelector(selector);
+  if (target !== null && target.textContent !== text) {
+    target.textContent = text;
+  }
+}
+
 function timeOfDay(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour12: false });
+}
+
+/** Local wall-clock value for a datetime-local input. */
+function toLocalInputValue(date: Date): string {
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 // ---------- State ----------
@@ -198,6 +234,28 @@ let clockOffsetMs = 0;
 
 function productName(sku: string): string {
   return productsBySku.get(sku)?.name ?? sku;
+}
+
+/** Time left until an ISO instant, by the server's clock: `m:ss`, or `now` once reached. */
+function timeUntil(iso: string): string {
+  const remainingMs = Date.parse(iso) - (Date.now() + clockOffsetMs);
+  if (remainingMs <= 0) {
+    return 'now';
+  }
+  const seconds = Math.ceil(remainingMs / 1000);
+  return `${String(Math.floor(seconds / 60))}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function releaseText(product: ProductView): string {
+  if (product.released || product.releaseAt === undefined) {
+    return '';
+  }
+  return `on sale at ${timeOfDay(product.releaseAt)} · in ${timeUntil(product.releaseAt)}`;
+}
+
+/** A product that is not on sale yet, or has people waiting, takes joins rather than orders. */
+function takesQueue(product: ProductView | undefined): boolean {
+  return product !== undefined && (!product.released || product.waiting > 0);
 }
 
 // ---------- Inventory pane ----------
@@ -221,6 +279,8 @@ function renderProducts(snapshot: Snapshot): void {
 
 function createProductRow(product: ProductView): HTMLTableRowElement {
   const row = el('tr');
+  const name = el('td');
+  name.append(el('span', 'name'), el('span', 'release'));
   const stock = el('td');
   const minus = makeButton('−', 'minus');
   const plus = makeButton('+', 'plus');
@@ -232,11 +292,12 @@ function createProductRow(product: ProductView): HTMLTableRowElement {
   const actions = el('td');
   actions.append(remove);
   row.append(
-    el('td', 'name'),
+    name,
     stock,
     el('td', 'confirmed'),
     el('td', 'active'),
     el('td', 'available'),
+    el('td', 'waiting'),
     actions,
   );
   updateProductRow(row, product);
@@ -245,21 +306,16 @@ function createProductRow(product: ProductView): HTMLTableRowElement {
 
 function updateProductRow(row: HTMLElement, product: ProductView): void {
   setText(row, '.name', product.name);
+  setText(row, '.release', releaseText(product));
   setText(row, '.total', ` ${String(product.totalStock)} `);
   setText(row, '.confirmed', String(product.confirmed));
   setText(row, '.active', String(product.active));
   setText(row, '.available', String(product.available));
+  setText(row, '.waiting', String(product.waiting));
   row.querySelector('.available')?.classList.toggle('zero', product.available === 0);
   const minus = row.querySelector('.minus');
   if (minus instanceof HTMLButtonElement) {
     minus.disabled = product.totalStock === 0;
-  }
-}
-
-function setText(root: HTMLElement, selector: string, text: string): void {
-  const target = root.querySelector(selector);
-  if (target !== null && target.textContent !== text) {
-    target.textContent = text;
   }
 }
 
@@ -274,15 +330,17 @@ function slug(name: string): string {
 async function addProduct(): Promise<void> {
   const name = dom.productName.value.trim();
   const totalStock = Number(dom.productStock.value);
-  const result = await api<ProductView>('POST', '/api/products', {
-    sku: slug(name),
-    name,
-    totalStock,
-  });
+  const release = dom.productRelease.value;
+  const body =
+    release === ''
+      ? { sku: slug(name), name, totalStock }
+      : { sku: slug(name), name, totalStock, releaseAt: new Date(release).toISOString() };
+  const result = await api<ProductView>('POST', '/api/products', body);
   dom.inventoryMessage.textContent = result.ok ? '' : result.error.message;
   if (result.ok) {
     dom.productName.value = '';
     dom.productStock.value = '1';
+    dom.productRelease.value = '';
   }
   await refresh();
 }
@@ -324,6 +382,75 @@ async function resetInventory(): Promise<void> {
     customer.message = '';
   }
   await refresh();
+}
+
+function renderWaitlists(snapshot: Snapshot): void {
+  const withQueues = snapshot.products.filter((product) =>
+    snapshot.waitlist.some((entry) => entry.sku === product.sku),
+  );
+  reconcile(
+    dom.waitlists,
+    withQueues,
+    (product) => product.sku,
+    (product) => {
+      const block = el('div', 'waitlist');
+      const heading = el('div');
+      heading.append(el('span', 'title'), el('span', 'release'));
+      block.append(heading, el('ol'));
+      updateWaitlistBlock(block, product, snapshot);
+      return block;
+    },
+    (block, product) => {
+      updateWaitlistBlock(block, product, snapshot);
+    },
+  );
+}
+
+function updateWaitlistBlock(block: HTMLElement, product: ProductView, snapshot: Snapshot): void {
+  setText(block, '.title', product.name);
+  setText(block, '.release', releaseText(product));
+  const list = block.querySelector('ol');
+  if (!(list instanceof HTMLOListElement)) {
+    return;
+  }
+  const entries = snapshot.waitlist.filter((entry) => entry.sku === product.sku);
+  reconcile(
+    list,
+    entries,
+    (entry) => entry.id,
+    (entry) => {
+      const item = el('li');
+      item.append(el('span', 'who'), el('span', 'state'));
+      updateWaitlistItem(item, entry, snapshot);
+      return item;
+    },
+    (item, entry) => {
+      updateWaitlistItem(item, entry, snapshot);
+    },
+  );
+}
+
+function updateWaitlistItem(item: HTMLElement, entry: WaitlistView, snapshot: Snapshot): void {
+  item.dataset.state = entry.state;
+  setText(item, '.who', `${entry.userId} · `);
+  setText(item, '.state', waitlistStateText(entry, snapshot));
+}
+
+function waitlistStateText(entry: WaitlistView, snapshot: Snapshot): string {
+  switch (entry.state) {
+    case 'Waiting':
+      return `waiting, #${String(entry.position ?? 0)} in line`;
+    case 'Offered': {
+      const hold = snapshot.reservations.find((r) => r.id === entry.reservationId);
+      return hold === undefined ? 'offered' : `offered · expires in ${countdown(hold)}`;
+    }
+    case 'Bought':
+      return 'bought';
+    case 'Passed':
+      return 'missed their turn';
+    case 'Left':
+      return 'left';
+  }
 }
 
 function renderActivity(snapshot: Snapshot): void {
@@ -374,13 +501,14 @@ function addCustomer(): void {
   const addToCart = makeButton('Add to cart', 'primary');
   order.append(product, quantity, addToCart);
 
+  const queue = el('ul', 'queue');
   const cart = el('ul', 'cart');
   const actions = el('div', 'actions');
   const checkout = makeButton('Checkout');
   actions.append(checkout);
   const bought = el('p', 'bought');
   const status = el('p', 'status');
-  card.append(header, order, cart, actions, bought, status);
+  card.append(header, order, queue, cart, actions, bought, status);
 
   const customer: Customer = {
     name,
@@ -389,10 +517,14 @@ function addCustomer(): void {
     quantity,
     addToCart,
     checkout,
+    queue,
     cart,
     bought,
     status,
     lines: [],
+    waiting: [],
+    offeredHoldIds: new Set(),
+    missed: '',
     message: '',
   };
   onClick(addToCart, async () => {
@@ -401,6 +533,11 @@ function addCustomer(): void {
   });
   onClick(checkout, () => checkoutFor(customer));
   onClick(remove, () => removeCustomer(customer));
+  product.addEventListener('change', () => {
+    if (latest !== undefined) {
+      renderCustomer(customer, latest);
+    }
+  });
 
   customers.push(customer);
   dom.customerCards.append(card);
@@ -430,15 +567,43 @@ function syncProductPickers(snapshot: Snapshot): void {
 
 function renderCustomer(customer: Customer, snapshot: Snapshot): void {
   const mine = snapshot.reservations.filter((reservation) => reservation.userId === customer.name);
+  const myEntries = snapshot.waitlist.filter((entry) => entry.userId === customer.name);
   customer.lines = mine.filter((reservation) => reservation.state === 'Active');
+  customer.waiting = myEntries.filter((entry) => entry.state === 'Waiting');
+  customer.offeredHoldIds = new Set(
+    myEntries
+      .filter((entry) => entry.state === 'Offered' && entry.reservationId !== undefined)
+      .map((entry) => entry.reservationId ?? ''),
+  );
   const bought = mine.filter((reservation) => reservation.state === 'Confirmed');
+  const lastPassed = myEntries.filter((entry) => entry.state === 'Passed').at(-1);
+  customer.missed =
+    lastPassed === undefined || customer.waiting.length > 0 || customer.lines.length > 0
+      ? ''
+      : `missed your turn for ${productName(lastPassed.sku)}`;
 
+  const chosen = productsBySku.get(customer.product.value);
+  const joining = takesQueue(chosen);
+  customer.addToCart.textContent = joining ? 'Join waiting list' : 'Add to cart';
+  customer.quantity.disabled = joining;
+  customer.addToCart.disabled =
+    joining && customer.waiting.some((entry) => entry.sku === chosen?.sku);
+
+  reconcile(
+    customer.queue,
+    customer.waiting,
+    (entry) => entry.id,
+    (entry) => createQueueLine(customer, entry),
+    updateQueueLine,
+  );
   reconcile(
     customer.cart,
     customer.lines,
     (line) => line.id,
     (line) => createCartLine(customer, line),
-    updateCartLine,
+    (item, line) => {
+      updateCartLine(item, line, customer);
+    },
   );
   customer.checkout.disabled = customer.lines.length === 0;
   customer.bought.textContent =
@@ -449,17 +614,46 @@ function renderCustomer(customer: Customer, snapshot: Snapshot): void {
   customer.status.textContent = statusText(customer);
 }
 
+function createQueueLine(customer: Customer, entry: WaitlistView): HTMLLIElement {
+  const item = el('li');
+  const leave = makeButton('Leave', 'link');
+  onClick(leave, () => leaveQueue(customer, entry.id));
+  item.append(el('span', 'line-name'), el('span', 'countdown'), leave);
+  updateQueueLine(item, entry);
+  return item;
+}
+
+function updateQueueLine(item: HTMLElement, entry: WaitlistView): void {
+  const product = productsBySku.get(entry.sku);
+  setText(
+    item,
+    '.line-name',
+    `#${String(entry.position ?? 0)} in line for ${productName(entry.sku)}`,
+  );
+  const when =
+    product === undefined || product.released || product.releaseAt === undefined
+      ? 'waiting for stock'
+      : `on sale in ${timeUntil(product.releaseAt)}`;
+  setText(item, '.countdown', when);
+}
+
 function createCartLine(customer: Customer, line: ReservationView): HTMLLIElement {
   const item = el('li');
   const remove = makeButton('Remove', 'link');
   onClick(remove, () => removeLine(customer, line.id));
   item.append(el('span', 'line-name'), el('span', 'countdown'), remove);
-  updateCartLine(item, line);
+  updateCartLine(item, line, customer);
   return item;
 }
 
-function updateCartLine(item: HTMLElement, line: ReservationView): void {
-  setText(item, '.line-name', `${String(line.quantity)} × ${productName(line.sku)}`);
+function updateCartLine(item: HTMLElement, line: ReservationView, customer: Customer): void {
+  const yourTurn = customer.offeredHoldIds.has(line.id);
+  item.classList.toggle('turn', yourTurn);
+  setText(
+    item,
+    '.line-name',
+    `${yourTurn ? 'your turn · ' : ''}${String(line.quantity)} × ${productName(line.sku)}`,
+  );
   setText(item, '.countdown', `expires in ${countdown(line)}`);
 }
 
@@ -470,6 +664,9 @@ function cardState(customer: Customer, boughtCount: number): string {
   if (customer.lines.length > 0) {
     return 'active';
   }
+  if (customer.waiting.length > 0) {
+    return 'waiting';
+  }
   return boughtCount > 0 ? 'confirmed' : 'idle';
 }
 
@@ -477,10 +674,20 @@ function statusText(customer: Customer): string {
   if (customer.message !== '') {
     return customer.message;
   }
-  if (customer.lines.length === 0) {
+  if (customer.missed !== '') {
+    return customer.missed;
+  }
+  if (customer.lines.length === 0 && customer.waiting.length === 0) {
     return 'cart empty';
   }
-  return `${String(customer.lines.length)} in cart`;
+  const parts: string[] = [];
+  if (customer.lines.length > 0) {
+    parts.push(`${String(customer.lines.length)} in cart`);
+  }
+  if (customer.waiting.length > 0) {
+    parts.push(`waiting for ${String(customer.waiting.length)}`);
+  }
+  return parts.join(' · ');
 }
 
 function countdown(reservation: ReservationView): string {
@@ -497,9 +704,24 @@ function tickCountdowns(): void {
     for (const line of customer.lines) {
       const item = customer.cart.querySelector(`[data-key="${line.id}"]`);
       if (item instanceof HTMLElement) {
-        updateCartLine(item, line);
+        updateCartLine(item, line, customer);
       }
     }
+    for (const entry of customer.waiting) {
+      const item = customer.queue.querySelector(`[data-key="${entry.id}"]`);
+      if (item instanceof HTMLElement) {
+        updateQueueLine(item, entry);
+      }
+    }
+  }
+  if (latest !== undefined) {
+    for (const product of latest.products) {
+      const row = dom.productRows.querySelector(`[data-key="${product.sku}"]`);
+      if (row instanceof HTMLElement) {
+        setText(row, '.release', releaseText(product));
+      }
+    }
+    renderWaitlists(latest);
   }
 }
 
@@ -509,11 +731,13 @@ async function placeOrder(customer: Customer): Promise<void> {
     customer.message = 'Add a product first.';
     return;
   }
-  const result = await api<ReservationView>(
-    'POST',
-    `/api/products/${encodeURIComponent(sku)}/reservations`,
-    { userId: customer.name, quantity: Number(customer.quantity.value) },
-  );
+  const path = `/api/products/${encodeURIComponent(sku)}`;
+  const result = takesQueue(productsBySku.get(sku))
+    ? await api<WaitlistView>('POST', `${path}/waitlist`, { userId: customer.name })
+    : await api<ReservationView>('POST', `${path}/reservations`, {
+        userId: customer.name,
+        quantity: Number(customer.quantity.value),
+      });
   customer.message = result.ok ? '' : result.error.message;
 }
 
@@ -522,6 +746,12 @@ async function removeLine(customer: Customer, reservationId: string): Promise<vo
     'POST',
     `/api/reservations/${encodeURIComponent(reservationId)}/cancel`,
   );
+  customer.message = result.ok ? '' : result.error.message;
+  await refresh();
+}
+
+async function leaveQueue(customer: Customer, entryId: string): Promise<void> {
+  const result = await api<undefined>('DELETE', `/api/waitlist/${encodeURIComponent(entryId)}`);
   customer.message = result.ok ? '' : result.error.message;
   await refresh();
 }
@@ -538,13 +768,16 @@ async function checkoutFor(customer: Customer): Promise<void> {
   await refresh();
 }
 
-/** Cancels the customer's holds so the stock comes back, then drops the card. */
+/** Gives up the customer's holds and places in line so stock comes back, then drops the card. */
 async function removeCustomer(customer: Customer): Promise<void> {
-  await Promise.all(
-    customer.lines.map((line) =>
+  await Promise.all([
+    ...customer.lines.map((line) =>
       api<ReservationView>('POST', `/api/reservations/${encodeURIComponent(line.id)}/cancel`),
     ),
-  );
+    ...customer.waiting.map((entry) =>
+      api<undefined>('DELETE', `/api/waitlist/${encodeURIComponent(entry.id)}`),
+    ),
+  ]);
   const index = customers.indexOf(customer);
   if (index !== -1) {
     customers.splice(index, 1);
@@ -553,7 +786,7 @@ async function removeCustomer(customer: Customer): Promise<void> {
   await refresh();
 }
 
-/** Every customer adds their chosen product at the same instant. */
+/** Every customer adds their chosen product (or joins its line) at the same instant. */
 async function everyoneAddsToCart(): Promise<void> {
   await Promise.all(customers.map(placeOrder));
   await refresh();
@@ -569,8 +802,9 @@ async function refresh(): Promise<void> {
   }
   latest = result.value;
   clockOffsetMs = Date.parse(latest.now) - Date.now();
-  dom.connection.textContent = `connected · ${String(latest.products.length)} products · ${String(latest.reservations.length)} reservations`;
+  dom.connection.textContent = `connected · ${String(latest.products.length)} products · ${String(latest.reservations.length)} reservations · ${String(latest.waitlist.length)} in waiting lists`;
   renderProducts(latest);
+  renderWaitlists(latest);
   renderActivity(latest);
   syncProductPickers(latest);
   for (const customer of customers) {
@@ -583,6 +817,9 @@ async function refresh(): Promise<void> {
 dom.addProductForm.addEventListener('submit', (event) => {
   event.preventDefault();
   void addProduct();
+});
+dom.releaseSoon.addEventListener('click', () => {
+  dom.productRelease.value = toLocalInputValue(new Date(Date.now() + clockOffsetMs + 30_000));
 });
 dom.holdTimeForm.addEventListener('submit', (event) => {
   event.preventDefault();

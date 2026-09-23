@@ -15,6 +15,7 @@
         --ok: #15803d;
         --warn: #b45309;
         --bad: #b91c1c;
+        --wait: #6d28d9;
         font-family:
           system-ui,
           -apple-system,
@@ -228,9 +229,88 @@
         margin-left: auto;
       }
       .pane h3 {
-        margin: 0 0 8px;
+        margin: 12px 0 8px;
         font-size: 14px;
         color: var(--muted);
+      }
+      .release-field {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      td .release {
+        display: block;
+        font-size: 12px;
+        color: var(--wait);
+      }
+      .waitlists {
+        display: grid;
+        gap: 8px;
+        font-size: 13px;
+      }
+      .waitlists:empty::before {
+        content: 'No waiting lists.';
+        color: var(--muted);
+      }
+      .waitlist .title {
+        font-weight: 600;
+      }
+      .waitlist .release {
+        color: var(--wait);
+        margin-left: 6px;
+      }
+      .waitlist ol {
+        margin: 4px 0 0;
+        padding-left: 20px;
+      }
+      .waitlist li[data-state='Offered'] {
+        color: var(--accent);
+      }
+      .waitlist li[data-state='Bought'] {
+        color: var(--ok);
+      }
+      .waitlist li[data-state='Passed'],
+      .waitlist li[data-state='Left'] {
+        color: var(--muted);
+        text-decoration: line-through;
+      }
+      .card .queue {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 4px;
+        font-size: 14px;
+      }
+      .card .queue li {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 4px 8px;
+        border-radius: 6px;
+        background: #f3efff;
+        color: var(--wait);
+      }
+      .card .queue .line-name {
+        font-weight: 600;
+      }
+      .card .queue .countdown {
+        flex: 1;
+      }
+      .card[data-state='waiting'] {
+        border-left-color: var(--wait);
+      }
+      .card .cart li.turn {
+        background: #eef4ff;
+      }
+      .activity-offered .text,
+      .activity-joined-waitlist .text {
+        color: var(--wait);
+      }
+      .activity-passed .text {
+        color: var(--warn);
       }
       .activity {
         list-style: none;
@@ -303,6 +383,11 @@
             required
             aria-label="Quantity"
           />
+          <label class="release-field">
+            On sale at
+            <input id="product-release" type="datetime-local" step="1" />
+            <button id="release-soon" type="button" class="link">+30 s</button>
+          </label>
           <button type="submit" class="primary">Add product</button>
         </form>
         <table>
@@ -313,11 +398,14 @@
               <th>Confirmed</th>
               <th>Active</th>
               <th>Available</th>
+              <th>Waiting</th>
               <th></th>
             </tr>
           </thead>
           <tbody id="product-rows"></tbody>
         </table>
+        <h3>Waiting lists</h3>
+        <div id="waitlists" class="waitlists"></div>
         <hr />
         <form id="hold-time-form">
           <label for="hold-time">Hold time (seconds)</label>
