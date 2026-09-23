@@ -5,8 +5,8 @@ Submitted for the Everest Engineering coding challenge (Challenge B).
 
 - **Stack:** TypeScript (strict), Node ≥ 22.13, Hono, Vitest. Two runtime dependencies (`hono`,
   `@hono/node-server`).
-- **Tests:** 129 tests in 14 files, including three concurrency tests; coverage 96.9% lines,
-  93.8% branches, 98.8% functions on `src/` (page excluded).
+- **Tests:** 183 tests in 16 files, including four concurrency tests; coverage 96.5% lines,
+  91.4% branches, 97.4% functions on `src/` (page excluded).
 - **Locking:** one promise-chain mutex per product around every write. See
   [Locking strategy](#locking-strategy).
 
@@ -32,28 +32,52 @@ to 10 seconds to watch that happen). **Reset inventory** puts everything back to
 - Confirmed purchases cannot be reversed; cancel and expiry release stock at once.
 - Under 500 simultaneous requests for one item, exactly one succeeds.
 - An audit trail of every action, including the rejected ones, and a reset to the seed state.
+- **Coming-soon products with a waiting list:** a product can carry a release time; people join a
+  first-come-first-served line before it; at release the first in line automatically get a hold
+  for the hold time, and a hold that expires or is cancelled passes to the next person. While
+  anyone is waiting, the queue goes first.
 
 ## API
 
 JSON under `/api`. Failures are `{ "error": { "code", "message" } }` with `VALIDATION` 400,
-`NOT_FOUND` 404, `OUT_OF_STOCK` / `INVALID_STATE` / `ALREADY_EXISTS` 409, and `INTERNAL` 500 for
-anything unexpected (reported server-side, nothing leaked).
+`NOT_FOUND` 404, `OUT_OF_STOCK` / `INVALID_STATE` / `ALREADY_EXISTS` / `NOT_RELEASED` /
+`WAITLIST_ACTIVE` / `ALREADY_QUEUED` 409, and `INTERNAL` 500 for anything unexpected (reported
+server-side, nothing leaked).
 
 | Method | Path | Body | Success |
 |---|---|---|---|
-| POST | `/api/products` | `{ sku, name, totalStock }` | 201 product view |
-| PATCH | `/api/products/:sku` | `{ totalStock }` | 200 product view |
+| POST | `/api/products` | `{ sku, name, totalStock, releaseAt? }` | 201 product view |
+| PATCH | `/api/products/:sku` | `{ totalStock?, releaseAt? }` (`null` clears) | 200 product view |
 | DELETE | `/api/products/:sku` | | 204 |
 | POST | `/api/products/:sku/reservations` | `{ userId, quantity? }` | 201 reservation |
+| POST | `/api/products/:sku/waitlist` | `{ userId }` | 201 entry with `position` |
+| DELETE | `/api/waitlist/:id` | | 204 (an offered hold is cancelled and passes on) |
 | POST | `/api/reservations/:id/confirm` | | 200 reservation |
 | POST | `/api/reservations/:id/cancel` | | 200 reservation |
 | PUT | `/api/settings/hold-time` | `{ holdTimeMs }` | 200 `{ holdTimeMs }` |
 | GET | `/api/state` | | 200 products, reservations, events, hold time |
 | POST | `/api/reset` | | 200 the state after re-seeding |
 
-A product view carries `confirmed`, `active` and `available` alongside `totalStock`. Dates are ISO
-strings. `events` is the audit trail, oldest first, as `{ seq, at, type, actor, message }`; the
-server keeps the latest 200.
+A product view carries `confirmed`, `active`, `available`, `released` and `waiting` alongside
+`totalStock`. Dates are ISO strings. `events` is the audit trail, oldest first, as
+`{ seq, at, type, actor, message }`; the server keeps the latest 200. `waitlist` lists every
+entry in join order with its `position` while it is `Waiting`.
+
+## Waiting lists
+
+A product with `releaseAt` in the future is *coming soon*: nobody can reserve it (`NOT_RELEASED`),
+anyone can join its waiting list. The rule that does the work is **promote**, which runs inside the
+product's lock after every write to that product and from a one-second server sweeper:
+
+1. Settle every offered entry by what became of its hold: confirmed → `Bought`; cancelled or
+   expired → `Passed`.
+2. If the product is released, give each `Waiting` entry, in order, an ordinary Active reservation
+   for the current hold time while stock is free, and mark it `Offered`.
+
+So at the release instant the first in line get holds with nobody clicking, a missed hold passes to
+the next person within a second, and a cancelled one passes at once. While anyone is `Waiting`, a
+direct reservation is refused (`WAITLIST_ACTIVE`); ordinary sales resume when the line is empty.
+One unit per place, one place per person. Design record: `docs/adr/0004-…`.
 
 ```bash
 curl -X POST localhost:3000/api/products/flash-ticket/reservations \
@@ -155,17 +179,18 @@ spec (`R1` … `R11`), so the brief's rules can be traced to the tests that hold
 - **Domain:** the availability arithmetic and every state transition, including the exact expiry
   boundary (t+119 999 ms holds, t+120 000 ms expires), with a fake clock.
 - **Service:** the lifecycle, validation, lazy expiry persistence, the audit trail (order, actors,
-  the 200-event cap) and reset.
+  the 200-event cap), reset, and the waiting list (release boundary, offers in order up to stock,
+  pass-on after expiry or cancel, leaving, queue-first fairness, release-time edits).
 - **Concurrency:** 500 simultaneous reserves sell exactly one; the same load without the lock
   oversells; a mixed load of reserve/confirm/cancel on two products never breaks
-  `confirmed + active ≤ total`.
+  `confirmed + active ≤ total`; 500 simultaneous joins get 500 distinct positions in arrival order.
 - **HTTP:** every route through Hono's in-process `app.request()`, the 500-request sale over HTTP,
-  a smoke test that starts the real server, and one that spawns `npm start`'s entry point and
-  stops it with SIGTERM.
+  a smoke test that starts the real server (including one that waits for the sweeper to release a
+  product 1 s away), and one that spawns `npm start`'s entry point and stops it with SIGTERM.
 - **Page:** type-checked, exercised by hand (checklist in the design record); not browser-tested.
 
 ```bash
-npm test               # 129 tests
+npm test               # 183 tests
 npm run test:coverage
 npm run lint && npm run typecheck && npm run format:check
 ```
@@ -180,7 +205,8 @@ conventional subjects.
    atomic Redis op, or one writer per SKU). A distributed lock is the literal translation but needs
    fencing tokens; an atomic store write is safer.
 3. **Idempotency keys** so a retried `reserve` does not hold twice.
-4. **An expiry sweeper** to keep stored state current for reporting.
+4. **Expiry timeliness.** The one-second waiting-list sweeper now records expiry for every product
+   within a second; without it, expiry is recorded on the next write.
 5. **Backpressure:** fail fast once sold out instead of joining the queue; cap queue length.
 6. **Ownership** on confirm and cancel.
 7. **Observability:** request ids, structured logs, metrics for rejections and lock wait time.
