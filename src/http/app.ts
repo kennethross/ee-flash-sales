@@ -105,6 +105,9 @@ export function createApp(service: InventoryService, options: AppOptions = {}): 
 
   app.get('/api/state', async (c) => c.json(await service.snapshot()));
 
+  /** For load balancers and container health checks: the process is up and answering. */
+  app.get('/api/health', (c) => c.json({ status: 'ok' }));
+
   app.post('/api/reset', async (c) => respond(c, await service.reset(seed)));
 
   app.notFound((c) =>

@@ -306,6 +306,15 @@ describe('R12 — POST /api/reset', () => {
   });
 });
 
+describe('GET /api/health', () => {
+  it('answers ok for load balancers and container health checks', async () => {
+    const { app } = setup();
+    const response = await call<{ status: string }>(app, 'GET', '/api/health');
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ status: 'ok' });
+  });
+});
+
 describe('unknown routes', () => {
   it('answer 404 as JSON', async () => {
     const { app } = setup();
