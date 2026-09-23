@@ -20,7 +20,8 @@
     "prepare": "husky",
     "build:server": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --packages=external --outfile=dist/main.js",
     "build": "npm run build:web && npm run build:server",
-    "start:prod": "npm run build && node dist/main.js"
+    "start:prod": "npm run build && node dist/main.js",
+    "release": "commit-and-tag-version"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
@@ -30,6 +31,7 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.2",
     "@vitest/coverage-v8": "^5.0.1",
+    "commit-and-tag-version": "^13.2.1",
     "esbuild": "^0.28.2",
     "eslint": "^10.11.0",
     "husky": "^9.1.7",
@@ -38,5 +40,9 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.70.0",
     "vitest": "^5.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kennethross/ee-flash-sales.git"
   }
 }
