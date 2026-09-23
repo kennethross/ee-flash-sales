@@ -4,3 +4,4 @@ dist
 public/simulator.js
 package-lock.json
 *.md
+learning/
