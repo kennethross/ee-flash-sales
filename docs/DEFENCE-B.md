@@ -145,6 +145,32 @@ the log says so rather than pretending to a timer it does not have. The in-memor
 latest 200 lines; in production this would be an append-only table or an event stream, which is
 also the natural place for the "one writer per SKU" design.
 
-**22. (yours)** What would you do differently if you started again?
+**22. How does the waiting list hand an item to the next person without a timer per person?**
+Nothing is scheduled per person. Every waiting-list decision is one function, `#promote`, that
+runs inside the product's lock: it first settles each offered entry by what became of its hold
+(confirmed → Bought, cancelled or expired → Passed), then, if the product is released, offers
+ordinary holds to the first `Waiting` entries while stock is free. It runs after every write to
+that product, which is why a cancel passes the item on immediately, and from one server-wide
+sweeper every second, which is what notices a release time or an expired hold when nobody is
+clicking. It is idempotent, so running it twice offers nothing twice, and a sweep racing a user's
+click just queues on the same lock.
 
-**23. (yours)** Which part of this code are you least sure about, and why?
+**23. Why can't someone buy directly once the product is released?**
+Because the line would be meaningless at the exact moment it matters. `reserve` checks two things
+after loading the product under the lock: not yet released → `NOT_RELEASED`; anyone still
+`Waiting` → `WAITLIST_ACTIVE` with the number ahead. Once the line is empty, ordinary sales resume.
+Joining after release with free stock is offered at once, so joining is never worse than buying.
+
+**24. What edge cases did you handle in the waiting list, and which did you leave?**
+Handled and tested: more people than stock; a hold not confirmed in time (passes on within a
+second); cancel (passes on at once); joining twice (`ALREADY_QUEUED`); leaving while waiting or
+while holding an offer (the hold is cancelled and passes on); a release time already in the past;
+a release time brought forward or postponed after offers were made (offers stay); stock added
+later; deleting the product or resetting; hold time changed between offers; the boundary at
+`releaseAt` exactly; 500 concurrent joins. Left, on purpose: quantities per place (one unit each);
+priorities or VIP lanes; notifying the person that their turn came (the page polls); persistence
+across restarts, as everywhere else in this build.
+
+**25. (yours)** What would you do differently if you started again?
+
+**26. (yours)** Which part of this code are you least sure about, and why?

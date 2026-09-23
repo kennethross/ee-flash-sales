@@ -427,3 +427,56 @@ Each item names the limit in this submission and what replaces it.
 - Which of A and B is submitted (Kenneth, after both exist).
 - Whether to ask the recruiter for an extension.
 - Which internal documents ship with the chosen submission.
+
+## 14. Coming-soon products and the waiting list (added 2026-09-23)
+
+Approved in conversation on 2026-09-23 (journal). One unit per entry; the queue always goes first.
+
+### Requirements
+
+| ID | Rule | Accepted when |
+|---|---|---|
+| R14 | A product may carry `releaseAt`. It is *released* when `releaseAt` is absent or `releaseAt ≤ now`. Before release `reserve` fails with `NOT_RELEASED`; joining the waiting list is allowed at any time | Reserve at t = releaseAt − 1 ms fails, at releaseAt the first in line is offered |
+| R15 | A waiting list is per product, first come first served, one place per person (`ALREADY_QUEUED` otherwise), one unit per place. Entries: `Waiting → Offered → Bought \| Passed`, or `Left` | 500 concurrent joins get positions 1…500, each unique; a second join by the same user fails |
+| R16 | **Promote**, inside the product's lock: settle offered entries by their reservation's state (Confirmed → Bought; Cancelled or Expired → Passed); then, if released, give each `Waiting` entry in order an Active reservation for the current hold time while stock is free, marking it `Offered`. Runs after every write to that product and from a one-second sweeper | Stock 2, three in line: at release the first two hold, the third waits; when one hold expires the third is offered within the next pass |
+| R17 | While any entry for a product is `Waiting`, `reserve` fails with `WAITLIST_ACTIVE`; ordinary sales resume once the queue is empty | Reserve on a queued product fails; after the queue drains it succeeds |
+| R18 | Leaving the list: a `Waiting` entry becomes `Left`; an `Offered` entry has its hold cancelled and becomes `Left`, and promotion runs. Deleting the product or resetting removes its entries | Leave while offered → the next in line is offered at once |
+
+### Edge cases (decisions)
+
+More people than stock → the rest wait for passes, cancels or added stock · holder does not confirm
+→ expiry noticed by promote, entry `Passed`, next offered · joins twice → `ALREADY_QUEUED` · joins
+after release with free stock and no queue → offered at once · release time in the past → released
+on the next promote · release time edited → existing offers stay, a later time only stops new
+offers · product deleted → queue removed · stock below confirmed + active → refused as before,
+waiting entries hold no stock · reset → queues cleared · hold time changed → each offer uses the
+hold time at that moment · boundary at `releaseAt ≤ now` · sweeper and user actions serialise on
+the lock, promote is idempotent · the same name in two tabs is one entry.
+
+### Types
+
+```ts
+export type WaitlistState = 'Waiting' | 'Offered' | 'Bought' | 'Passed' | 'Left';
+export interface WaitlistEntry {
+  readonly id: string; readonly sku: Sku; readonly userId: UserId; readonly joinedAt: Date;
+  readonly state: WaitlistState; readonly reservationId: ReservationId | undefined;
+}
+// Product gains `releaseAt?: Date`; ProductView gains `released: boolean`, `waiting: number`.
+// Snapshot gains `waitlist: readonly WaitlistView[]` where WaitlistView adds `position` (Waiting only).
+// New failure codes: NOT_RELEASED, WAITLIST_ACTIVE, ALREADY_QUEUED (all 409).
+```
+
+### API and page
+
+`POST /api/products` and `PATCH /api/products/:sku` accept `releaseAt` (ISO string; `null` clears
+it on PATCH; PATCH fields are optional but at least one is required). `POST
+/api/products/:sku/waitlist` `{ userId }` → 201 entry with `position`. `DELETE /api/waitlist/:id`
+→ 204. `GET /api/state` includes `waitlist`. Events: `joined-waitlist`, `left-waitlist`, `offered`,
+`passed`, `release-changed`. The server runs `processWaitlists()` every second and stops it on
+close.
+
+Page: an optional "On sale at" time when adding a product (with a "+30 s" helper); coming-soon rows
+show the countdown to release and the number waiting; a **Waiting lists** section lists each queue
+in order with state; a card whose chosen product is not released or has a queue shows **Join
+waiting list**, then `#n in line for Mug · on sale in m:ss` with **Leave**; an offer shows up as a
+cart line to check out; a missed turn shows `missed your turn for Mug`.

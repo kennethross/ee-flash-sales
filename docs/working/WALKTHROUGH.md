@@ -94,10 +94,39 @@ decisions were made; rejections are recorded too. Expiry is recorded when the sy
 `InMemoryStore` assigns `seq` and keeps the latest 200. `reset` clears the log, writes one `reset`
 line and re-creates the seed, so after a reset the log reads `reset`, `product-created`.
 
+## The waiting list
+
+`src/domain/waitlist.ts`: an entry is `Waiting → Offered → Bought | Passed`, or `Left`; `offerTo`,
+`settle` (same-object when nothing changed, like `expireIfDue`) and `leaveWaitlist` are pure. A
+product may carry `releaseAt`; `isReleased` uses the same `<= now` convention as expiry.
+
+`InventoryService.#promote(sku, now)` is the whole rule and runs inside the product's lock:
+
+1. `#load` (which also records expiry), then settle every entry by its hold's state; `Passed` is
+   logged as "missed their turn".
+2. If released: `free = available`; for each `Waiting` entry in order while `free ≥ 1`, create an
+   ordinary hold with `#hold`, mark the entry `Offered`, log `offered`.
+
+It is called after every write to a product (adjust, release change, join, leave, confirm, cancel)
+and by `processWaitlists()`, which the server runs every second (`SWEEP_INTERVAL_MS`) and stops on
+close. `reserve` refuses with `NOT_RELEASED` before release and `WAITLIST_ACTIVE` while anyone is
+`Waiting`. Positions are computed in `withPositions` at snapshot time: the `Waiting` entries of a
+product numbered 1, 2, 3… in join order (a `Map` keeps insertion order even when an entry is saved
+again, which is what makes the queue order free).
+
+Trace with stock 1 and three in line, hold 8 s: release → ana `Offered` (hold expires +8 s) → the
+sweeper at +8 s notices the expiry, settles ana to `Passed`, offers ben → +16 s ben `Passed`, cy
+offered → +24 s cy `Passed`, the line is empty, ordinary sales resume. This exact sequence was
+observed in the browser on 2026-09-23 (journal, Phase 7).
+
 ## The page
 
 `public/index.html` + `src/web/simulator.ts` (compiled to `public/simulator.js` by
-`tsconfig.web.json`). It polls `/api/state` every second. Customers exist only in the page;
+`tsconfig.web.json`). It polls `/api/state` every second. A product whose chosen row is not
+released, or has people waiting, turns a card's button into **Join waiting list**; the customer's
+`Waiting` entries show as purple queue lines with a countdown to release and **Leave**; an offer
+appears as a cart line marked `your turn`; a missed turn shows `missed your turn for …`. The
+Inventory pane shows each queue in order. Customers exist only in the page;
 reservations live on the server under `userId = customer name`, and a customer's **cart** is simply
 their Active reservations. "Add to cart" reserves, "Remove" on a line cancels, "Checkout" confirms
 every line, × on the card cancels the holds and drops the card. "Everyone adds to cart" is one

@@ -4500,3 +4500,15 @@ Approved in conversation (journal, Phase 6); built test-first on top of the fini
 - Inventory pane: *Reset inventory*, **Activity** list (newest first, 50 rows, coloured by type).
 - `reconcile()` keeps keyed elements instead of rebuilding rows (activity keyed by `seq@at` because reset restarts `seq`).
 - Verified in Chrome against `npm start`: sale, two-line cart + checkout, remove line, remove customer with a hold, reset, activity order; no console errors.
+
+---
+
+## Phase 7 — Coming-soon products and the waiting list (2026-09-23, spec §14)
+
+Executed inline, test-first, one commit per layer.
+
+- **Task 19 — domain:** `src/domain/waitlist.ts` (entry, states, `offer`, `settle`, `leave`), `product.ts` (`releaseAt`, `isReleased`, `stockCounts` gains `waitlist` → `released`, `waiting`), failure codes `NOT_RELEASED | WAITLIST_ACTIVE | ALREADY_QUEUED`. Tests: transitions, release boundary, waiting count.
+- **Task 20 — store + service:** store `saveWaitlistEntry`, `getWaitlistEntry`, `listWaitlist`, snapshot `waitlist`, delete removes entries. Service: `createProduct` with `releaseAt`, `setReleaseAt`, `joinWaitlist`, `leaveWaitlist`, `processWaitlists`, `#promote` called after every write; `reserve` gated by R14/R17; snapshot positions. Tests: R14–R18 service tests, 500 concurrent joins.
+- **Task 21 — HTTP + sweeper:** guards for `releaseAt`, `parseUpdateProduct`, `parseJoinWaitlist`; routes join/leave/PATCH; `startServer` sweeper every second, cleared on close. Tests: routes; a real-time smoke (release in 1 s → offered).
+- **Task 22 — page:** on-sale-at input, countdown to release, waiting column, Waiting lists section, Join waiting list / Leave on cards, missed-turn message. Verified in Chrome.
+- **Task 23 — docs:** README, walkthrough, DEFENCE-B (queue questions), checklist, journal; fresh-clone check.

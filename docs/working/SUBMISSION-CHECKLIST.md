@@ -3,9 +3,8 @@
 The code, tests, README, ADRs and records are complete. These remain, in order of importance.
 
 ## 0. Decide A or B (deadline 2026-09-23)
-- [ ] Both are complete. A: 150 tests, CLI, four levels, in `~/Documents/projects/ee`. B: 129 tests,
-      HTTP API + simulator page with cart, reset and an audit trail, in this folder. The brief says
-      "Choose ONE".
+- [ ] Submitted on 2026-09-23 (journal). This folder continues as your own project: 183 tests,
+      HTTP API + simulator page with cart, reset, an audit trail and coming-soon waiting lists.
 - [ ] Ask yourself which you can defend better cold. The AI's view (recorded in the journal on
       2026-09-21): A is the safer submission; B has the better interview story on concurrency.
 
@@ -15,9 +14,9 @@ The code, tests, README, ADRs and records are complete. These remain, in order o
       5-second hold time, remove a customer with a hold, remove a product with active holds,
       reset, two tabs; watch the Activity list while you do it.
 - [ ] Take `/grill-me` sessions on: the mutex line by line · why a Map needs a lock · the no-lock
-      test · two instances · expiry on read · reload inside the lock · the audit trail · the AI
-      questions.
-- [ ] Rewrite every answer in `docs/DEFENCE-B.md` in your own words. Answer 22 and 23 yourself.
+      test · two instances · expiry on read · reload inside the lock · the audit trail · the
+      waiting list's `#promote` and the sweeper · the AI questions.
+- [ ] Rewrite every answer in `docs/DEFENCE-B.md` in your own words. Answer 25 and 26 yourself.
 
 ## 2. Make the README true
 Every sentence in "AI disclosure" must be true *of you*:

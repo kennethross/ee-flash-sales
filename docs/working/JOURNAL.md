@@ -289,3 +289,61 @@ there. This folder started as a copy of A's `docs/`; A's copies were deleted on 
   the clean checkout and the page served with the new toolbar. Temporary clone deleted.
 - **GAP (Kenneth only)** — Unchanged: choose A or B; `/grill-me`; reword in his voice; decide what
   ships; push/submit by 2026-09-23. Nothing has been pushed or sent anywhere.
+
+## 2026-09-23
+
+- **INPUT** — Kenneth: "looks good. few questions 1. do we manage to fulfill the requirements
+  2. what else we need to do? 3. WHere can we host this for free?"
+- **AI** — Answered: every brief item mapped to a test or file (with three stated caveats:
+  single-process lock, lazy expiry recording, page not browser-tested); what remains is his
+  (choose A or B, own the code, decide what ships, push and submit); hosting must be a
+  single-instance host (Render free or Cloud Run `--max-instances=1`), serverless would oversell.
+- **INPUT** — Kenneth: "oh i wanna add 1 more thing, add queue for items that is checked out".
+  A clarifying question was started; Kenneth interrupted and restated the feature.
+- **INPUT** — Kenneth: "ok maybe lets do this instead. a feature where we wanna sell a particular
+  item that is coming soon. so customer can go checkout first and be put on queue. eg an item is
+  being to be put on display but can only be buy on 12am midnight. customer can go to the website
+  and join the waiting list. then when a the time reached at 12am midnight, the item will be
+  automatically checkout to that person and there is reserved time. if they didnt proceed to buy,
+  it will go to the next person in line. lets polish this a bit and check out any edge cases we
+  need to handle".
+- **AI** — Read as: a product with a release time; a per-product FIFO waiting list before (and
+  after) release; at release the first in line automatically get a hold for the hold time; a hold
+  that expires or is cancelled passes the item to the next in line. Design and edge cases
+  presented before any code; deadline (today) flagged.
+- **DECISION (Kenneth)** — One unit per waiting-list entry, one place per person per product
+  (rejected: quantities with skip-to-fit). While anyone is waiting, direct Add to cart is refused
+  and the card offers "Join waiting list" (rejected: first come between queue and buyers).
+- **INPUT** — Kenneth: "dont worry about the deadline. i already submit. this is just for my own.
+  build all". The challenge has been submitted; this repository continues as his own project and
+  interview material with the same discipline. Which challenge was submitted is not recorded here.
+- **DECISION (Claude)** — Timing by a single one-second server sweeper calling
+  `processWaitlists()` (idempotent, one lock per product per pass), plus promotion inline after
+  every write to a product. Not a timer per entry; tests drive promotion with the fake clock.
+- **AI** — Spec §14 (R14–R18) written; a compact Phase 7 task list appended to the plan instead
+  of a full-code plan, since the work is executed in the same session immediately after.
+- **AI** — Domain (`4a54a38`): `waitlist.ts` (entry, five states, `offerTo`, `settle`,
+  `leaveWaitlist`, `holdsPlace`), `releaseAt`/`isReleased` on products, `stockCounts` gains
+  `released` and `waiting`, three failure codes. 11 new tests seen red first; 9 existing
+  full-shape view expectations gained the two new fields.
+- **AI** — Store + service (`281d641`): waiting-list storage (a `Map` keeps queue order on update),
+  `joinWaitlist`, `leaveWaitlist`, `setReleaseAt`, `processWaitlists`, `#promote` inside the lock
+  after every write, `reserve` gated by `NOT_RELEASED` / `WAITLIST_ACTIVE`, positions computed at
+  snapshot time. 26 new tests (R14–R18 incl. 500 concurrent joins) — **all passed on the first
+  run**; one lint error (`_previous` unused) fixed by building the base product explicitly.
+- **AI** — HTTP + sweeper (`a1e566b`): `releaseAt` on create and PATCH (`parseUpdateProduct`, at
+  least one field, `null` clears), join and leave routes, `SWEEP_INTERVAL_MS = 1000` in
+  `startServer` cleared on close; 17 new tests including a real-time smoke (release 1 s away →
+  offered without anyone acting).
+- **AI** — Page (`912ae71`): "On sale at" with a "+30 s" helper, countdown to release on rows, a
+  Waiting column, a Waiting lists section, Join waiting list / Leave / `your turn` / `missed your
+  turn` on cards, × also leaves any lines. Browser run with stock 1, hold 8 s, release +30 s, three
+  joins: offered → missed → offered → missed → offered → missed, each within a second of the
+  moment, then ordinary "Add to cart" again. No console errors.
+- **AI** — Phase 7 result: 183 tests in 16 files passing; ESLint, `tsc --noEmit` and Prettier
+  clean; coverage 96.5% lines, 91.4% branches, 97.4% functions. README (waiting lists section,
+  routes, codes), ADR 0004, walkthrough, DEFENCE-B (Q22–24), spec §14 and this journal updated.
+- **NOTE** — Branch coverage dipped from 93.8% to 91.4%: the new branches are the guard paths for
+  `releaseAt` (string vs null vs absent) and the settle switch; each is exercised by at least one
+  test, the uncovered ones are the `undefined`-hold defensive branches in `#promote` and
+  `leaveWaitlist`. Recorded, not chased.
