@@ -396,3 +396,58 @@ there. This folder started as a copy of A's `docs/`; A's copies were deleted on 
   scaffolding time; harmless until the bundle existed).
 - **GAP (Kenneth only)** — Push (`! git push origin main`, or to a branch); confirm the two CI
   jobs (`verify` on Node 22/24, `image`) are green; the study steps.
+
+## 2026-09-24 — Releases per PR (versioning first, the rest as PRs)
+
+- **INPUT** — Kenneth, mid-way through the response-envelope work: postpone it; first add
+  versioning; then, as separate branches + PRs each: the API response envelope, API versioning,
+  OpenAPI; GraphQL goes on the improvements list. Every merged PR bumps the version (semver) and
+  gets a release note. "i know it is jumble on this sentence, but lets start this first."
+- **AI** — Proposed: `commit-and-tag-version` run locally (`npm run release`: bump from the
+  conventional commits since the last tag, `CHANGELOG.md`, `chore(release): X.Y.Z` commit, `vX.Y.Z`
+  tag), a tag-triggered GitHub workflow that publishes the Release with that changelog section,
+  `GET /api/health` reporting the version, and the standing workflow: branch per request, PR body
+  by the AI, push and merge by Kenneth (rebase or merge commit, not squash, so the commits reach
+  `main`), `npm run release && git push --follow-tags` after each merge. Alternatives named:
+  release-please (needs the "Actions can create PRs" setting), semantic-release (cannot start
+  below 1.0.0). First release: `--first-release` tags the existing `1.0.0`.
+- **DECISION (Kenneth)** — "approve. but dont do everything in 1 go. lets do it parts by parts".
+- **AI** — Part 1: the envelope work so far (failure `details`, `parsePage`, envelope builders —
+  197 tests green) committed on `feat/api-response-envelope` at `d504f97`; back to `main`.
+- **AI** — Part 2a: branch `chore/release-versioning`; `commit-and-tag-version` 13.2.1 as a dev
+  dependency, `release` script, `repository` field (for compare/commit links), `.versionrc.json`
+  (sections Features / Bug Fixes / Performance / Build and CI; refactor, docs, test, chore
+  hidden). `package.json` re-run through Prettier after npm rewrote it, as before.
+- **AI** — Dry run of `--first-release`: tags `v1.0.0` without a bump; changelog of 18 features,
+  3 fixes, 5 build/CI entries with commit links. Committed as `7682159`.
+- **AI** — Part 2b, test-first: `createApp` takes an optional `version`; `GET /api/health` returns
+  `{ status: 'ok', version }` when given one (and `{ status: 'ok' }` otherwise, so tests that
+  don't care are untouched). `server.ts` imports `package.json` with `with { type: 'json' }` —
+  one source of truth; tsx reads it in development, esbuild inlines it into `dist/main.js`, so
+  the container needs no file at runtime. `resolveJsonModule` added to `tsconfig.json`. Verified
+  the bundle: `node dist/main.js` answers `{"status":"ok","version":"1.0.0"}`.
+  Committed as `88c928c`.
+- **AI** — Part 2c, test-first: `scripts/release-notes.ts` (pure `releaseNotes(changelog,
+  version)` plus a CLI) picks one version's section out of `CHANGELOG.md`, handling the three
+  heading shapes the generator writes (`## [x.y.0](…)`, `### [x.y.z](…)` for a patch, `## 1.0.0`
+  for the first) and matching the whole version, not a prefix. `.github/workflows/release.yml`:
+  on a `v*` tag push, `npm ci`, notes from the script, `gh release create` with them; the tag
+  reaches the shell only as `$GITHUB_REF_NAME` (no `${{ }}` in `run:`), `contents: write` only.
+  `scripts` added to the tsconfig include so ESLint's type-aware rules cover it. Rejected:
+  `gh release create --generate-notes` (notes from PR titles — a second source of truth next to
+  the changelog); an `awk` one-liner in YAML (untestable). Committed as `a7bc30d`.
+- **AI** — Part 2d: README "Releases" section (what to run after a merge; merge commit or
+  rebase, not squash), health row now `{ status, version }`, test count 191; ADR 0005;
+  DEFENCE-B Q28. Two commits: `docs:` (README, ADR) and `docs(internal):` (defence, journal).
+  PR body written for PR 1; the push is Kenneth's (`! git push -u origin chore/release-versioning`),
+  then `gh pr create` from here.
+- **INPUT** — Kenneth pushed the branch. `gh pr create` from here was allowed: PR #1 opened.
+- **AI (error)** — CI on the push: `verify` green on Node 22 and 24, `image` red in 23 s. Log:
+  ESLint in the Docker `test` stage, `tests/scripts/release-notes.test.ts` "Unsafe call of a type
+  that could not be resolved" ×5 — the stage copies `tests/` but not `scripts/`, so the import
+  resolved to nothing. The pre-commit hook could not see it (the directory exists locally); a
+  local `docker build` before pushing would have, and this PR changed what the test stage needs.
+  Fix: `COPY scripts ./scripts` in the test stage; `docker build` run locally before the commit.
+- **GAP (Kenneth only)** — After merging PR 1: `git checkout main && git pull &&
+  npm run release -- --first-release && git push --follow-tags origin main`, then check the
+  `Release` workflow published `v1.0.0`. Every later merge: the same without `--first-release`.

@@ -10,10 +10,11 @@
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
     "noEmit": true,
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src", "tests", "vitest.config.ts"],
+  "include": ["src", "tests", "scripts", "vitest.config.ts"],
   "exclude": ["src/web"]
 }

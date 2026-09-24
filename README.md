@@ -77,7 +77,7 @@ server-side, nothing leaked).
 | PUT | `/api/settings/hold-time` | `{ holdTimeMs }` | 200 `{ holdTimeMs }` |
 | GET | `/api/state` | | 200 products, reservations, events, waitlist, hold time |
 | POST | `/api/reset` | | 200 the state after re-seeding |
-| GET | `/api/health` | | 200 `{ status: "ok" }` |
+| GET | `/api/health` | | 200 `{ status: "ok", version }` |
 
 A product view carries `confirmed`, `active`, `available`, `released` and `waiting` alongside
 `totalStock`. Dates are ISO strings. `events` is the audit trail, oldest first, as
@@ -211,13 +211,35 @@ spec (`R1` … `R11`), so the brief's rules can be traced to the tests that hold
 - **Page:** type-checked, exercised by hand (checklist in the design record); not browser-tested.
 
 ```bash
-npm test               # 184 tests
+npm test               # 191 tests
 npm run test:coverage
 npm run lint && npm run typecheck && npm run format:check
 ```
 
 Commits pass a `pre-commit` hook running all of the above, and a `commit-msg` hook enforcing
 conventional subjects.
+
+## Releases
+
+Every merged pull request becomes a release. The version is not chosen by hand: it follows
+[semver](https://semver.org) from the conventional commits since the previous tag — `feat` bumps
+the minor, `fix` and `perf` the patch, a `!` or `BREAKING CHANGE` footer the major.
+
+After a merge, on `main`:
+
+```bash
+git pull
+npm run release        # first time only: npm run release -- --first-release
+git push --follow-tags origin main
+```
+
+`npm run release` ([commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version))
+works out the bump, rewrites `CHANGELOG.md`, updates `package.json`, commits `chore(release): X.Y.Z`
+through the same hooks as any other commit, and tags `vX.Y.Z`. Pushing the tag runs
+`.github/workflows/release.yml`, which publishes a GitHub Release whose notes are that version's
+section of the changelog (`scripts/release-notes.ts`), so the two cannot disagree. The running
+server reports its version on `GET /api/health`. Merge with a merge commit or a rebase, not a
+squash, so the individual commits reach `main` and the changelog. (ADR 0005.)
 
 ## Improvements with more time
 
